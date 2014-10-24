@@ -1,0 +1,55 @@
+title: みんなのPython Webアプリ編 - O/Rマッパーの利用例
+date: 2014-09-03 15:00
+fmt: markdown
+prev : /ats/stuff/minpy_web/10/index.html
+prev_title: シンプルなO/Rマッパーを作る
+next : /ats/stuff/minpy_web/11/index.html
+next_title: RSSリーダーを作る その2
+
+## O/Rマッパーの利用例
+
+では、実査にO/Rマッパーを使ってみましょう。インタラクティブシェルを使って、O/Rマッパー用クラスを使ったコードを簡単に書いてみます。
+
+まず、BaseMapperクラスをインポートし、抽象クラスを継承したクラスを定義する必要があります。テーブルに定義するカラムは、クラスアトリビュートにタプルとして定義します。数値とテキストだけを持つシンプルなテーブルです。その後、クラスメソッドを使ってテーブルを作ります。
+
+    :::python
+    >>> from simplemapper import BaseMapper
+    >>> class TestORClass(BaseMapper):
+    ... rows=(('num', 'int'), ('body', 'text')) ...
+    >>> TestORClass.createtable()
+
+テーブルを作ったら、テーブルにデータを追加します。10回のループを組み、追加するデータを引数として与えます。range(10)というシーケンスを与えて0から9までの数値を繰り返し変数に代入しながらループを実行し、繰り返し変数に合わせて異なったデータをテーブルに追加しています。
+
+    :::python
+    >>> for i in range(10):
+    ... ins=TestORClass(num=i, body='body'+str(i))
+    ...
+
+データを追加したあと、今度は追加したデータをデータベースから取り出して画面に表示しています。取り出した結果はクラスのインスタンスオブジェクトとして返ってきますが、BaseMapperクラスに定義された__repr__()メソッドによりインスタンスオブジェクトの内容がわかりやすく表示されるはずです。
+
+アトリビュートを書き換えて、インスタンスのupdate()メソッドを呼び出すことで、変更内容をデータベースに更新しています。
+
+    :::python
+    >>> ins=TestORClass(id=1)
+    >>> ins
+    <TestORClass:num=0, body=u'body0'>
+    >>> ins.num=100
+    >>> ins.body=u'body100'
+    >>> ins.update()
+
+最後に、追加したデータ、更新したデータを確認する意味で、データベースからデータを取り出してみましょう。numが5以上という条件を与えます。引数の最後に_gtという文字列を追加します。結果を表示して、正しいデータが取り出されているかどうか確認してみましょう。先ほどデータを更新しています。更新したデータも表示されるはずです。
+
+    :::python
+    >>> for ins in TestORClass.select(num_gt=5): ... print ins
+    ...
+    <TestORClass:num=100, body=u'body100'>
+    <TestORClass:num=6, body=u'body6'>
+    <TestORClass:num=7, body=u'body7'>
+    <TestORClass:num=8, body=u'body8'>
+    <TestORClass:num=9, body=u'body9'>
+
+今回作ったO/Rマッパーはたかだか140行ほどの短いプログラムです。これだけの短いコードでも、データベースの処理をPython的な方法で行い、プログラムからSQL文字列を追い出すことができるわけです。
+
+O/Rマッパーを活用すると、よりシンプルで見通しがよいプログラムを作れます。そのぶん、より複雑なプログラムを、より手軽に作れるようになるわけです。
+
+

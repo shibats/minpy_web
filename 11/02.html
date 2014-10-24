@@ -1,0 +1,94 @@
+title: みんなのPython Webアプリ編 - 巡回用RSSの一覧ページを作る
+date: 2014-09-03 15:00
+fmt: markdown
+prev : /ats/stuff/minpy_web/11/index.html
+prev_title: O/Rマッパーの利用例
+next : /ats/stuff/minpy_web/11/03.html
+next_title: 編集用フォームを作る
+
+### 巡回用RSSの一覧ページを作る
+
+次に、登録済みの巡回用RSSをリスト表示するプログラムを作ります。まずは、動的な出力を行うPythonのプログラムを作ります。「listurl.py」という名前で、cgi-binフォルダに保存します。
+
+先ほど定義したRssurlという名のO/Rマッパークラスを使って、データベースから登録済みの巡回用RSSを取り出し、テンプレートエンジンに渡す、というのが主な処理です。
+
+** listurl.py **
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    
+    from simpletemplate import SimpleTemplate
+    from rssurl import Rssurl
+    from os import path
+    from httphandler import Request, Response
+    import cgitb; cgitb.enable()
+    
+    value_dic={'rsslist':[x for x in Rssurl.select(order_by='id')]}  # (1)
+    
+    res=Response()
+    p=path.join(path.dirname(__file__), 'urllist.html')
+    t=SimpleTemplate(file_path=p)
+    body=t.render(value_dic)
+    res.set_body(body)
+    print res
+
+テンプレートエンジンで登録済みのRSSを表示するため、rsslistというキーにリストを渡しています(1)。キーに対応する値には、O/Rマッパークラスのインスタンスオブジェクトをリストにして登録します。クラスのselect()メソッドでデータベースからすべてのデータを取り出し、結果をリスト内包表記でリストに変換しています。たった1行のコードでこれだけの処理を実現しています。
+
+テンプレートエンジンに渡す辞書を作ったら、次はResponseオブジェクトを作ります。テンプレートのパスを指定してテンプレートエンジンのインスタンスを作り、文字列に変換して結果として出力しています。
+
+#### テンプレートファイルの作成
+
+次に、リストを表示するためのテンプレートファイルを作ります。UTF-8のエンコーディングで、cgi-binフォルダに設置します。
+
+テンプレートエンジンが使えるようになり、Webアプリケーションの出力として使うHTMLの自由度が上がったので、デザインにも凝ってみることにします。CSSを使って、見栄えのする画面を作ってみることにしましょう。
+
+** urllist.html **
+
+    :::html
+    <html>
+      <head>
+        <meta http-equiv="content-type"
+              content="text/html;charset=utf-8" />
+        <link rel="stylesheet"
+              href="/style.css" type="text/css"/>
+      </head>
+      <body>
+      <h1 class="header">簡易RSSリーダー</h1>
+      <h2 class="title">RSSの追加，編集</h2>
+      <div class="control">
+        <a href="./addurl.py">新しいRSSを追加</a>
+        <a href="./rssreader2.py">RSS一覧に戻る</a>
+      </div>
+      <ol>
+      $for item in rsslist:           # (1)
+        <li>
+          ${item.title}
+          <span class="control">
+          <a href="./editurl.py?id=${item.id}">編集</a>
+          </span>
+        </li>
+      $endfor
+      </ol>
+      </body>
+    </html>
+
+このテンプレートでは、テンプレートエンジンを利用しているPythonのプログラムからrsslistというシーケンス(リスト)を受け取っています。シーケンスには、データベースからO/Rマッパーを使って得た巡回用RSSのオブジェクトがすべて入っています。受け取ったシーケンスを使い、テンプレートのループ構文$for〜:を使って繰り返し処理を行っています(1)。
+
+ループの内部では、&lt;a&gt;タグを使って編集用のURLへのリンクを埋め込んでいます。編集用のプログラムは「editurl.py」という名前にする予定です。
+
+リンクには、テンプレートエンジンの埋め込み記法を使い、巡回用RSSを特定するための情報(id)を埋め込んでいます。GETメソッドを使って、編集する巡回用RSSを特定するための情報を渡しているわけです。
+
+またこのテンプレートでは見栄えをよくするためにCSSを適用していますが、ここでは内容を解説しません。本書のサポートサイトでダウンロード可能なサンプルファイルを参照してください。
+
+先ほど、インタラクティブシェルを使ってテスト用のデータを1件登録してあります。P.44で作成したcgiserver.pyを実行してPython製のWebサーバを走らせ、Webブラウザでこのプログラム(cgi-bin/listurl.py)にアクセスをすると、テストとして登録したデータが表示されます。
+
+** 図02 登録済みの巡回用RSSをリスト表示する画面 **
+
+![図02 登録済みの巡回用RSSをリスト表示する画面](/static/images/minpy_web/11/02.png)
+
+
+
+
+
+

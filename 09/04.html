@@ -1,0 +1,461 @@
+title: みんなのPython Webアプリ編 - Pythonでテンプレートエンジンを作る
+date: 2014-09-03 15:00
+fmt: markdown
+prev : /ats/stuff/minpy_web/09/03.html
+prev_title: 標準モジュールを使ったテンプレートエンジン
+next : /ats/stuff/minpy_web/10/index.html
+next_title: O/Rマッパーを使ったデータベースの操作
+
+### Pythonでテンプレートエンジンを作る
+
+標準モジュールに内蔵されているTemplateクラスだけでは、高度なWebアプリケーションを作るには機能不足である、ということはよく分かっていただけたと思います。既存のテンプレートエンジンは、単純な文字列置換だけでなく、より高度な機能を装備しています。
+
+ここでは、少し趣向を変えて、先ほど使ったTemplateクラスよりも高機能なテンプレートエンジンを作ってみましょう。ただし、あまり機能は欲張らず、置換機能と条件分岐、ループの機能だけを実装することにします。シンプルな機能を持ったテンプレートエンジンを作ることによって、テンプレートエンジン自体への理解を深めることもできるはずです。
+
+このテンプレートエンジンを「SimpleTemplate」と呼ぶことにします。
+
+#### テンプレートエンジンの仕様を決める
+
+テンプレートエンジンを作るに当たって、まずは内部に埋め込む命令の記法などを決めなければなりません。
+
+テンプレートエンジンのタイプとしては埋め込み型を選ぶことにします。埋め込み型の方が比較的実装が簡単だからです。HTMLに埋め込み、動的に置き換える文字列や命令を指定する部分は、目立っている必要があります。その方が、HTMLの他の部分と見分けやすく、修正をするときに目的の場所をすぐに見つけられるはずです。SimpleTemplateでは、$という記号に特別な意味を持たせるようにしまし
+ょう。動的に置き換える要素は${〜}で囲むようにします。この中には、テンプレートエンジンに渡された辞書のキーや、Pythonの式を書けるようにします。
+
+条件分岐やループは、行頭から始まって$if~:、$for〜:と記述することにします。条件式、ループ変数やシーケンスの書き方はPythonに準じることにします。条件分岐では$else:や$elif〜:は利用できません。
+
+また、条件分岐やループのブロックの「終わり」を示すために、$endifと$endforというキーワードを使います。このように明示的に終わりを指定しないと、どこからどこまでがループや条件分岐で処理すべき範囲なのかが分からなくなってしまいます。こうしてみると、インデントを使ってブロックの範囲を指定するPythonの記法がいかにシンプルかがよく分かります。
+
+#### 実装の指針
+
+テンプレートエンジンはクラスとして実装します。テンプレート本文となる文字列、またはテンプレートファイルのパスを渡してクラスのインスタンスオブジェクトを生成します。
+
+テンプレートのクラスには、テンプレートを解釈して結果を出力するメソッドを作ります。本来、このような処理を実装するためにはトークナイザーと呼ばれる仕組みを組み込む必要があります。今回作るテンプレートエンジンの仕様では、範囲の判別が必要な要素が必ず行頭から始まっています。このような単純な仕様のため、テンプレート本文を行ごとに分割して処理を進めることができます。なお、テンプレートエンジン内部では、文字列をユニコード文字列として扱うようにします。
+
+${〜}で囲まれた部分は、見つけたその場で置き換えを実行します。条件分岐、ループについては、まず処理対象となる範囲を探し出し、その範囲のみを対象に処理をする必要があります。この部分が今回の実装のキモとなります。
+
+処理の内容は、分かりやすく、とても素朴に書いてあります。処理速度や機能を優先するなら、別の実装方法があるはずですが、処理の内容が分かりやすいように、あえて簡単なプログラムにしてあります。またモジュール名はsimpletemplateとします。
+
+##### 初期化部分の実装
+
+まずは、クラスの初期化部分を実装してみましょう。クラスの宣言と、初期化用の__init__()メソッドを実装します。必要であれば本文をファイルから取得、改行で分割し、インスタンスのbodyというアトリビュートに保存します。
+
+** __init__メソッドの実装(simpletemplate.py) **
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    import re
+    
+    if_pat=re.compile(r"¥$if¥s+(.*¥:)")                  # (2)
+    endif_pat=re.compile(r"¥$endif")
+    for_pat=re.compile(r"¥$for¥s+(.*)¥s+in¥s+(.*¥:)")
+    endfor_pat=re.compile(r"¥$endfor")
+    value_pat=re.compile(r"¥${(.+?)}")
+    
+    class SimpleTemplate(object):
+        """
+        シンプルな機能を持つテンプレートエンジン
+        """
+        def __init__(self, body='', file_path=None):
+            """
+            初期化メソッド
+            """
+            if file_path:
+                f=open(file_path)
+                body=unicode(f.read(), 'utf-8', 'ignore')
+            body=body.replace('¥r¥n', '¥n')
+            self.lines = body.split('¥n')
+            self.sentences = ((if_pat, self.handle_if),
+                              (for_pat, self.handle_for),
+                              (value_pat, self.handle_value),)
+
+今回のテンプレートエンジンでは、動的置き換えに使うパターンをタプルとしてアトリビュートに保存しておきます。パターンの判別を行う正規表現オブジェクトと、パターンにマッチしたときに呼び出されるメソッドの呼び出し可能オブジェクトをタプルにし、タプルとして並べておきます(1)。
+
+そして正規表現オブジェクトの定義部分が(2)です。
+
+##### レンダリング処理を実装する
+
+では次に、テンプレートに埋め込まれたパターンを展開して、テンプレートをレンダリングする処理について解説します。以下が該当部分のコードです。クラスメソッドで、レンダリングの処理を行っています。
+
+** process()メソッドの実装(simpletemplate.py) **
+
+    :::python
+        def process(self, exit_pats=(), start_line=0, kws={}):
+            """
+            テンプレートのレンダリング処理をする
+            """
+            output=u''
+            cur_line=start_line
+            while len(self.lines) > cur_line:
+                line=self.lines[cur_line]
+                for exit_pat in exit_pats:
+                    if exit_pat.search(line):
+                        return cur_line+1, output
+                    for pat, handler in self.sentences:
+                    m=pat.search(line)
+                    pattern_found=False
+                    if m:
+                    try:
+                        cur_line, out=handler(m, cur_line, kws)
+                        pattern_found=True
+                        output+=out
+                        break
+                    except Exception, e: raise
+                        "Following error occured in line %d¥n%s" \
+                        %(cur_line, str(e))
+                if not pattern_found:
+                    output+=line+'¥n' cur_line+=1
+            if exit_pats:
+                raise "End of lines while parsing"
+            return cur_line, output
+
+メソッドでは、インスタンスに保存されているテンプレート本文を1行ずつ読み込みながら処理を進めています。テンプレート本文を最後まで読み込んだら処理を終える、という処理を実現するため、while文を使ってループを組んでいます。メソッドの引数として終了条件を渡せるようになっています。テンプレート本文を1行ずつ読んでいき、この終了条件に見合う行が出現した場合も処理を終了します。終了条件は正規表現のパターンとして与え、シーケンスに複数指定できるようになっています。
+
+ループの中では、初期化メソッドで定義した置き換えパターンを使い、テンプレートの各行を評価しています。while文のループの中にfor文のループが見えますが、この部分が処理を実行している場所です。もし、置き換えパターンに設定された正規表現にヒットする行が現れたら、パターンを処理するためのメソッドを呼び出します。for文の繰り返し変数としてパターンの処理メソッドの呼び出し可能オブジェクトを受け取っていますので、この変数に対して呼び出しを行っています。変数にメソッドが入っているというのは一見奇妙に見えるかもしれませんが、Pythonではよく使われる手法です。
+
+パターンの処理メソッドでは、置換やループ、条件分岐などの処理が実行されます。ループや条件分岐のように範囲に対して実行する処理では、process()メソッド自体を再帰呼び出しして利用します。このようにすることで、入れ子になったループや条件分岐、条件分岐の中にあるループなど、複雑な構造を持ったテンプレートを処理できるようになります。
+
+##### パターンの置換を処理する
+
+SimplaTemplateでは、${~}で囲まれた部分を置換用の文字列として扱います。パターンで囲まれた部分はPythonの式と見なし、式の返す値を置換してテンプレートに埋め込みレンダリングします。変数名が埋め込まれていれば変数の内容を文字列に変換して埋め込みます。関数呼び出しであれば、関数の戻り値を文字列として埋め込みます。
+
+テンプレートエンジンは、プログラムから埋め込みに利用する変数などのオブジェクトを受け取ってレンダリングの処理をします。標準モジュールのTemplateクラスでは、辞書としてレンダリングに利用する変数などを渡していました。辞書のキーを変数名に、値を変数に代入されたオブジェクトのように扱い、テンプレートをレンダリングしているわけです。引数として渡された辞書を使って、テンプレート内部で利用する名前空間を作っているわけです。辞書で渡されたオブジェクトは、Pythonのプログラムで言う変数などが定義される名前空間になります。そのような名前空間はローカルの名前空間と呼ばれます。その他にも、組み込み関数などが置かれる名前空間も利用できます。
+
+このメソッドでは、_kwsという引数がその辞書に該当します。この辞書には、Webアプリケーションのプログラムから渡された辞書が渡ってきます。この辞書に入ったデータをローカル変数のように見立て、テンプレートのレンダリングを行います。辞書にはいろいろなPythonのオブジェクトを代入できます。変数はもちろんPythonのオブジェクトですし、インスタンス、関数やメソッド、モジュールもPythonのオブジェクトです。このようなオブジェクトをテンプレートエンジンに渡せば、いろいろな処理が実行できることになります。
+
+** 図07 名前空間 **
+
+![図07 名前空間](/static/images/minpy_web/09/07.png)
+
+** handle_value()メソッドの実装(simpletemplate.py) **
+
+    :::python
+    
+        def handle_value(self, _match, _line_no, _kws={}):
+            """
+            ${...}を処理する
+            """
+            _line=self.lines[_line_no]           # (1)
+            _rep=[]
+            locals().update(_kws)                # (2)
+            pos=0
+            while True:
+                _m=value_pat.search(_line[pos:])
+                if not _m:
+                    break
+                pos+=_m.end()
+                _rep.append( (_m.group(1), unicode(eval(_m.group(1)))) )  # (3)
+            for t, r in _rep:
+                _line=_line.replace('${%s}'%t, r)
+            return _line_no, _line+'¥n'
+
+テンプレート内でパターンの置換を行っているメソッドについて、処理内容を詳しく解説しましょう。メソッドには、正規表現のマッチオブジェクト、行数、テンプレートに渡された辞書が引数として渡ってきます。
+
+まずは、引数として渡ってくる行数を使い、処理対象となるテンプレート本文の行を取り出します(1)。
+
+その後に、2のような奇妙な行が見えます。この行がこのメソッドの第1のキモです。locals()はPythonの組み込み関数で、ローカル変数を定義している辞書を返します。この辞書に対してupdate()メソッドを呼び出しています。引数として、テンプレート内で変数として利用するオブジェクトが入った辞書を渡します。このようにすると、辞書を元にローカル変数を定義できるのです。インタラクティブシェルを使って簡単な例を試してみましょう。aという変数は明示的に定義していませんが、locals()の返す辞書に対して操作を行うことで変数定義と同様の処理が実現できていることが分かります。
+
+    :::python
+    >>> print a
+    Traceback (most recent call last):
+    File "<stdin>", line 1, in <module>
+    NameError: name 'a' is not defined
+    >>> locals().update({'a':1})
+    >>> print a
+    1
+
+このようにして、テンプレート内で利用するローカル変数を定義します。その後は、処理対象となる行から置換用のパターンを探し出します。パターンが見つかったら、内部の文字列をPythonの式と見なし、返ってきた結果を文字列として埋め込む処理をします(3)。文字列をPythonの式と見なす処理にはeval()を使っています。eval()は文字列を引数としてとり、文字列をPyhtonの式として評価して結果を返す関数です。
+
+このようにして、行にある置換用のパターンを変換していきます。結果を返して処理を終了し、process()メソッドに戻ります。
+
+#### 条件分岐の処理
+
+条件分岐のパターンは、ある条件によって表示内容を切り替えたいときに利用します。SimpleTemplateでは、$if~:というパターンを使って条件分岐を埋め込みます。条件分岐の際に評価するブロックの終端を表現するために$entifというパターンを使います。$if~:と$endifで囲まれた部分が、条件分岐で評価される範囲となります。
+
+$ifの後には、Pythonの式を記述します。この式を真偽値として評価して、Trueに相当するかFalseに相当するかによって、処理の内容を振り分けます。
+
+** handle_if()メソッドの実装(simpletemplate.py) **
+
+    :::python
+        def handle_if(self, _match, _line_no, _kws={}):
+            """
+            $ifを処理する
+            """
+            _cond=_match.group(1)
+            if not _cond:
+                raise "SyntaxError: invalid syntax in line %d" % line_no     # (1)
+            _cond=_cond[:-1]
+            locals().update(_kws)
+            _line, _out=self.process((endif_pat, ), _line_no+1, _kws)
+            ￼if not eval(_cond)
+                _out=''
+            return _line-1, _out
+
+条件分岐を行っている部分について解説しましょう。条件分岐の処理をする前に、表記のエラーをチェックしています。$ifの後に条件となる式があるかどうかを簡易にチェックし、もしない場合はエラーを返しています(1)。もし条件式が見つかったら、該当部分を文字列として取り出します。
+
+条件分岐を行うときには、Webアプリケーションのプログラムから渡された変数や、インスタンスなどのオブジェクトを利用したいことがあるはずです。このため、パターン置換のときと同じ方法で引数の辞書の内容をローカル変数として展開します。その後、条件式の文字列をeval()で評価、if文を使って結果によって処理を振り分けています(2)。
+
+条件式が真だった場合には、ブロックの$endifまでの部分をレンダリングします。レンダリングするブロックの中に、条件分岐やループが入れ子になっている場合を考慮して、ブロック内のみを対象として処理するようにprocess()メソッドを再帰的に呼び出しています。条件式が偽だった場合には、ブロック内をレンダリングしません。
+
+##### ループの処理
+
+同じ要素をリスト風に表示したり、UIとなるフォームのメニューを動的に作るときに利用するのがループの機能です。条件分岐と同様に処理をする範囲を明示する必要があります。SimpleTemplateでは$for~in~:というパターンと$endforというパターンで囲まれる範囲を処理の対象とします。ループの処理は、Pythonの文法と同じく、シーケンスやイテレータを元に行います。繰り返し変数にシーケンスやイテレータの要素を1つずつ代入していき、ブロックの内容をレンダリングします。要素がなくなったらループの処理を終了します。
+
+** handle_for()メソッドの実装(simpletemplate.py) **
+
+    :::python
+        def handle_for(self, _match, _line_no, _kws={}):
+            """
+            $forを処理する
+            """
+            ￼_var=_match.group(1)              # (1)
+            _exp=_match.group(2)
+            if not _var or not _exp:
+                raise "SyntaxError: invalid syntax in line %d" % line_no
+            locals().update(_kws) ￼            # (2)
+            _seq=eval(_exp[:-1])              # (3)
+            _out=''
+            if not _seq:
+                ￼return self.find_matchline(endfor_pat, _line_no), _out
+            for _v in _seq:                   # (4)
+                _kws.update({_var:_v})
+                _line, _single_out=self.process((endfor_pat, ),
+                     _line_no+1, _kws)
+                _out+=_single_out
+            return _line-1, _out
+
+メソッド内では、まず$for〜:以下のパターンが正しいかどうかを簡単にチェックしています(1)。ループを実行するためには、繰り返し変数の変数名と、シーケンスやイテレータに相当するPythonの式が必要です。この2つのパターンが存在しない場合は、エラーとして扱っています。
+
+ループを行うときに利用するPythonの式には、Webアプリケーションのプログラムから渡されたオブジェクトを使うことが多いはずです。そのためここでも、引数として渡された辞書をローカル変数として登録しています(2)。その後、繰り返しを実行するための式に相当する文字列を、eval()を使ってPythonのオブジェクトに変換しています(3)。
+
+eval()で変換した式を元に、for文を使ってループを組んでいます。ループの中では、local()を返す辞書をupdate()し、繰り返し変数を定義しています。その上で、$for〜$endfor内のループブロックの範囲をprocess()メソッドに渡して処理をしています(4)。ループブロックの中に、置換用のパターンや条件分岐、他のループがある場合に対応できるよう再帰呼び出しを行っているのです。
+
+##### そのほかの処理
+
+上記で解説した以外の処理としては、実際にテンプレートの表示を行うためのrender()メソッドと、正規表現オブジェクトを受け取りマッチする行の行数を返すfind_matchline()メソッドがありますが、ここでは詳しく解説しません。簡単なので自分で研究してみてください。
+
+完成したsimpletemplate.pyは、次のとおりです。
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    import re
+    
+    if_pat=re.compile(r"\$if\s+(.*\:)")
+    endif_pat=re.compile(r"\$endif")
+    for_pat=re.compile(r"\$for\s+(.*)\s+in\s+(.*\:)")
+    endfor_pat=re.compile(r"\$endfor")
+    value_pat=re.compile(r"\${(.+?)}")
+    
+    class SimpleTemplate(object):
+        """
+        シンプルな機能を持つテンプレートエンジン
+        """
+    
+        def __init__(self, body='', file_path=None):
+            """
+            初期化メソッド
+            """
+            if file_path:
+                f=open(file_path)
+                body=unicode(f.read(), 'utf-8', 'ignore')
+            body=body.replace('\r\n', '\n')
+            self.lines = body.split('\n')
+            self.sentences = ((if_pat, self.handle_if),
+                              (for_pat, self.handle_for),
+                              (value_pat, self.handle_value),)
+    
+        def render(self, kws={}):
+            """
+            テンプレートをレンダリングする
+            """
+            l, o=self.process(kws=kws)
+            return o
+    
+        def find_matchline(self, pat, start_line=0):
+            """
+            正規表現を受け取り，マッチする行の行数を返す
+            """
+            cur_line=start_line
+            for line in self.lines[start_line:]:
+                if pat.search(line):
+                    return cur_line
+                cur_line+=1
+            return -1
+    
+        def process(self, exit_pats=(), start_line=0, kws={}):
+            """
+            テンプレートのレンダリング処理をする
+            """
+            output=u''
+            cur_line=start_line
+            while len(self.lines) > cur_line:
+                line=self.lines[cur_line]
+                for exit_pat in exit_pats:
+                    if exit_pat.search(line):
+                        return cur_line+1, output
+                for pat, handler in self.sentences:
+                    m=pat.search(line)
+                    pattern_found=False
+                    if m:
+                        try:
+                            cur_line, out=handler(m, cur_line, kws)
+                            pattern_found=True
+                            output+=out
+                            break
+                        except Exception, e:
+                            raise "Following error occured in line %d\n%s" \
+                                                %(cur_line, str(e))
+                if not pattern_found:
+                    output+=line+'\n'
+                cur_line+=1
+            if exit_pats:
+                raise "End of lines while parsing"
+            return cur_line, output
+    
+        def handle_value(self, _match, _line_no, _kws={}):
+            """
+            ${...}を処理する
+            """
+            _line=self.lines[_line_no]
+            _rep=[]
+            locals().update(_kws)
+            pos=0
+            while True:
+                _m=value_pat.search(_line[pos:])
+                if not _m:
+                    break
+                pos+=_m.end()
+                _rep.append( (_m.group(1), unicode(eval(_m.group(1)))) )
+            for t, r in _rep:
+                _line=_line.replace('${%s}'%t, r)
+            return _line_no, _line+'\n'
+    
+        def handle_if(self, _match, _line_no, _kws={}):
+            """
+            $ifを処理する
+            """
+            _cond=_match.group(1)
+            if not _cond:
+                raise "SyntaxError: invalid syntax in line %d" % line_no
+            _cond=_cond[:-1]
+            locals().update(_kws)
+            _line, _out=self.process((endif_pat, ), _line_no+1, _kws)
+            if not eval(_cond):
+                _out=''
+            return _line-1, _out
+    
+        def handle_for(self, _match, _line_no, _kws={}):
+            """
+            $forを処理する
+            """
+            _var=_match.group(1)
+            _exp=_match.group(2)
+            if not _var or not _exp:
+                raise "SyntaxError: invalid syntax in line %d" % line_no
+            locals().update(_kws)
+            _seq=eval(_exp[:-1])
+            _out=''
+            if not _seq:
+                return self.find_matchline(endfor_pat, _line_no), _out
+            for _v in _seq:
+                _kws.update({_var:_v})
+                _line, _single_out=self.process((endfor_pat, ), _line_no+1, _kws)
+                _out+=_single_out
+            return _line-1, _out
+
+#### ブックマーク管理Webアプリを書き換える
+
+さて、今回作ったシンプルなテンプレートエンジンを使って、先ほど作ったブックマーク管理Webアプリを書き換えてみましょう。SimpleTemplateは、テンプレート内に繰り返しを行う機能を持っています。この機能を使うと、HTMLに相当する文字列を完全にプログラムから駆除できるはずです。
+
+まず、Webアプリケーションの出力となるテンプレートを書きます。SimpleTemplateは、埋め込みのパターンが標準ライブラリのTemplateクラスと同じです。そのため、フォームのvalueアトリビュートの部分は書き換える必要がありません。エラーメッセージを表示している部分で条件分岐を使い、既存ブックマークを表示している部分でループの機能を利用することにしましょう。
+
+以下がSimpleTemplate用に書き換えたテンプレートです。「stbookmarkform.html」というファイル名でcgi-binフォルダに設置します。
+
+
+** stbookmarkform.html **
+
+    :::html
+    <html>
+      <head>
+        <meta http-equiv="content-type"
+              content="text/html;charset=utf-8" />
+      </head>
+      <body>
+      <h1>簡易ブックマーク</h1>
+      $if message:
+      <p>${message}</p>
+      $endif
+      <form method="post" action="">
+        タイトル : <input type="text" name="title" size="40"
+                         value="${title}" /><br />
+        URL　　 : <input type="text" name="url" size="40"
+                         value="${url}" /><br />
+        <input type="hidden" name="post" value="1" />
+        <input type="submit" />
+      </form>
+      <ul>
+      $for item in bookmarks:
+      <dt>${item[0]} </dt>
+      <dd>${item[1]} </dd>
+      $endfor
+      </ul>
+      </body>
+    </html>
+
+次に、Webアプリケーションの処理を行うプログラムを書き換えます。フォームから送られたデータを元に、新しいブックマークを登録する部分は以前のプログラムと共通して利用できます。変更する必要があるのは、ブックマーク一覧に相当する文字列を作っている部分と、テンプレートエンジンを使ってWebアプリケーションの出力を作っている部分のみです(網掛けの部分)。HTMLが完全になくなり、プログラムがスッキリして見通しがよくなっているのが分かるはずです。
+
+** stemplatebbs.py **
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    
+    import sqlite3
+    from simpletemplate import SimpleTemplate
+    from os import path
+    from httphandler import Request, Response, get_htmltemplate
+    import cgitb; cgitb.enable()
+    
+    con=sqlite3.connect('./bookmark.dat')
+    cur=con.cursor()
+    try:
+        cur.execute("""CREATE TABLE bookmark (
+                       title text, url text);""")
+    except:
+        pass
+    
+    req=Request()
+    f=req.form
+    value_dic={'message':'', 'title':'', 'url':'','bookmarks':''}
+    
+    if f.has_key('post'):
+        if f.getvalue('title', '') and f.getvalue('url', ''):
+            cur.execute("""INSERT INTO bookmark(title, url) VALUES(?, ?)""",
+                        (f.getvalue('title', ''), f.getvalue('url', '')))
+            con.commit()
+        else:
+            value_dic['message']=u'タイトルとURLは必須項目です'
+            value_dic['title']=f.getvalue('title', '')
+            value_dic['url']=f.getvalue('url', '')
+    
+    cur.execute("SELECT title, url FROM bookmark")               # (1)
+    value_dic['bookmarks']=tuple(cur.fetchall())
+    
+    res=Response()
+    p=path.join(path.dirname(__file__), 'stbookmarkform.html')   # (2)
+    t=SimpleTemplate(file_path=p)
+    body=t.render(value_dic)
+    res.set_body(body)
+    print res
+
+テンプレートエンジンでは、既存ブックマークをシーケンスとして受け取り、ループを使ってブックマークを表示しています。Webアプリケーションのプログラム側では、辞書にシーケンス(タプル)を渡すだけでよいわけです(1)。
+
+テンプレートで表示するデータができ上がったら、テンプレートのパスを指定してテンプレートエンジンのインスタンスオブジェクトを作ります。インスタンスのrender()メソッドを呼び出し、テンプレートをレンダリングします(2)。後の手順はこれまでと同じです。
+
+このように、高度な機能を持つテンプレートエンジンを使うと、プログラムをスッキリ書けるようになります。表示をコントロールするための処理はテンプレート側に埋め込みます。プログラム側てはデータを操作したり表示に必要なデータを取り出す作業を担当します。
+
+プログラムとテンプレートの役割分担を明確にして、処理を分担することで、Webアプリケーション全体の見通しがよくなるのです。見通しがよくなれば、開発がより効率的になります。開発が効率化すれば、より複雑なWebアプリケーションを簡単に作れるようになりますし、プログラムの拡張や修正も楽になります。最近では、より複雑で高機能なWebアプリケーションを作るために、高機能なテンプレートエンジンは必須となっています。
+
+
+

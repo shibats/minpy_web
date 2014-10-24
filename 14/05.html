@@ -1,0 +1,216 @@
+title: みんなのPython Webアプリ編 - フォーム認証の機能を作る
+date: 2014-09-03 15:00
+fmt: markdown
+prev : /ats/stuff/minpy_web/14/04.html
+prev_title: フォームを使った認証
+next : /ats/stuff/minpy_web/15/index.html
+next_title: Webアプリケーションとセキュリティ
+
+## フォーム認証の機能を作る
+
+実際にフォーム認証の仕組みを作ってみましょう。これまで作ってきたテンプレートエンジンやWebアプリケーションを活用して、フォーム認証の仕組みを作ります。
+
+先ほど作ったWebアプリケーションでは、モジュールに定義した関数に、デコレータを設置するとリクエストに応答するように関数を加工できました。同じように、デコレータを使ってアクセス時に認証が必要な関数が設定できると便利です。今回はデコレータを活用して、アクセスするためにフォーム認証が必要な関数を作ってみましょう。
+
+今回は必要なすべてのコードを1つの「authentication.py」というモジュールファイルに収めます。
+
+### 認証フォーム一式を作る
+
+まずはフォーム認証に必要な一連の遷移を作る必要があります。ウィジェットとバリデータを活用して、間違いがあったら再入力を促すような使いやすい認証フォームを作りましょう。
+
+まずは必要なライブラリのインポートとフォームの定義をします。フォームの定義には、先ほど作成したウィジェットとバリデータを使います。ユーザ名とパスワードは、アルファベットと数値のみ受け付けるようにします。
+
+** フォームの定義(authentication.py) **
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    
+    from SimpleAppServer import expose, test
+    from httphandler import Response
+    from simpletemplate import SimpleTemplate
+    
+    from validators import NotEmpty, RegexValidator
+    from widgets import Text, Submit, Form
+    
+    editforms=(Text('username', u'ユーザ名',
+                validators=(NotEmpty(), RegexValidator(r'[A-Za-z\d]')),),
+               Text('password', u'パスワード',
+                validators=(NotEmpty(), RegexValidator(r'[A-Za-z\d]')),),
+               Submit('submit', u'ログイン'))
+    loginform=Form(editforms, {'action':'/login', 'method':'POST'})
+    
+    base_body="""<html><body>%s</body></html>"""
+
+次にフォームを表示するための関数を作ります。Webアプリケーションに定義されたexposeデコレータを使い、Webブラウザでアクセスできるようにします。~/login_formというURLにアクセスすると、フォームが表示されます。
+
+** login_form()関数(authentication.py) **
+
+    :::python
+    @expose
+    def login_form(_request, values={}, errors={}):
+        body=base_body % ('${form.display(values, errors)}')
+        res=Response()
+        t=SimpleTemplate(body)
+        values['password']=''
+        body=t.render({'form':loginform, 'values':values, 'errors':errors})
+        res.set_body(body)
+        return res
+
+
+この関数は、フォームの入力に間違いがあった場合などに再度呼ばれます。そのときのために、前回のリクエストで入力された値とエラーを辞書で受け取っています。辞書はテンプレートエンジンに渡して、必要があればフォームに値やエラーを埋め込んで表示します。
+
+次に、フォームからPOSTされたリクエストを受け取る関数を作ります。この関数は、ウィジェットに定義済みです。
+
+** login()関数(authentication.py) **
+
+    ::::python
+    from Cookie import SimpleCookie
+    import md5
+    fixeduser='user'                 # (4)
+    fixedpass='pass'
+    
+    @expose
+    def login(_request, username='', password=''):
+        res=Response()
+        values, errors=loginform.validate({'username':username,
+                                           'password':password})
+        if errors or fixeduser!=username or fixedpass!=password:
+            return login_form(_request, values, errors)   # (1)
+    
+        c=SimpleCookie()
+        m=md5.md5(username+':'+password)                  # (2)
+        c['authhash']=m.hexdigest()                       # (3)
+        c['authhash']['expires']='Thu, 1-Jan-2030 00:00:00 GMT'
+        res.set_header(*c.output().split(': '))
+        res.status=302
+        res.set_header('Location', '/')
+        res.set_body('')
+        return res
+
+この関数では2種類の処理をしています。1つ目は、フォームからのPOSTリクエストを受け付け、フォームに入力された値が空であったり、英数字以外の文字列が含まれていないかどうかを調べるバリデーションチェックです。2つ目は、入力されたユーザ名とパスワードが正しいかどうかを調べる処理です。正しいユーザ名(fixeduser)とパスワード(fixedpass)はモジュールのアトリビュートに固定で設定しておきます(4)。本来なら、データベースに登録したユーザ名とパスワードを問い合わせるような実装になるはず です。
+
+入力に間違いがあった場合は、login_form()関数を呼び出してフォームを再表示します(1)。正しいユーザ名とパスワードが入力された場合は、SimpleCookieを使ってCookieに認証用の値を設定するようヘッダを記載し、レスポンスを返します。クッキーの値は、ユーザ名とパスワードをコロン(:)で連結した文字列から生成したMD5のハッシュ文字列です(2)。Cookieに値を設定するとともに、リダイレクトを行っています(3)。
+
+念のため、ログアウト用の関数も作っておきましょう。Cookieに入っている値を空にして、メッセージを表示するだけの単純な関数です。
+
+** logout()関数(authentication.py) **
+
+    :::python
+    @expose
+    def logout(_request):
+        body=base_body % ('<p>Logged out</p>')
+        res=Response()
+        c=SimpleCookie()
+        c['authhash']=''
+        res.set_header(*c.output().split(': '))
+        res.set_body(body)
+        return res
+
+#### ログインチェック用の仕組みを作る
+
+次に、ログイン状態を確認するためのデコレータを準備しましょう。以前に作ったexpose()は関数でしたが、今回はクラスを作ります。今回のデコレータでは、汎用性を高めるためログイン状態を確認する関数と、ログイン用のパスを引数で指定できるようにしたいからです。
+デコレータ指定時に引数を渡して、デコレータの挙動をコントロールできるようにしておけば、チェック用の関数を入れ替えたり、フォームを表示するURLを変更したりできます。デコレータで引数を受け取れるようにするためには、クラスを作る必要があるのです。
+
+** secured_exposeクラス(authentication.py) **
+
+    ::::python
+    class secured_expose(object):
+        """
+        認証付きのリクエストハンドラ関数を定義するためのデコレータクラス
+        """
+    
+        def __init__(self, checkfunc, loginpath='/login_form'):
+            self.loginpath=loginpath
+            self.checkfunc=checkfunc
+    
+        def __call__(self, func):
+            def wrapper(_request, *args, **kws):
+                if self.checkfunc(_request):
+                    return func(_request=_request, *args, **kws)
+                else:
+                    res=Response()
+                    res.status=302
+                    res.set_header('Location', self.loginpath)
+                    res.set_body('')
+                    return res
+            expose(wrapper, func_name=func.func_name)
+            return wrapper
+
+
+まず、デコレータ指定時に受け取りたい引数をクラスの初期化メソッド__init__()に指定します。その後、実際にデコレータとして機能するメソッド__call__()を定義します。__call__()は、インスタンスオブジェクトに直接丸カッコを記述したときに呼ばれる特殊メソッドです。
+
+なお、この例では__call__()メソッドの内部にwrapper()という入れ子の関数を定義しています。入れ子の関数内部で、デコレータ指定された関数を場合分けして実行するのが狙いです。
+
+wrapper()関数内部では、まずリクエストの状態を受け取り認証状態をチェックしています。インスタンスの初期化時に渡された関数オブジェクトを呼び出す形でログイン状態のチェックを行っています。
+
+ログイン状態であることが確認できたときには、func()を呼び出してリクエストを処理します。
+
+ログイン状態であることが確認できなかったときには、302のステータス番号を発行してリダイレクトを行います。デコレータに引数として指定されたパスを対象にリダイレクトを行います。
+
+__call__()メソッドの最後では、expose()関数を呼んでいます。関数の第2引数として渡ってくる関数オブジェクトを、URL呼び出しできるようにWebアプリケーションに登録することが目的です。最後に、wrapper()という関数オブジェクト自体を戻り値として返しています。
+
+次に、ログイン状態をチェックする関数を作りましょう。リクエストのCookieを解釈して、ログイン状態を正しく示す値が登録されているかどうかを調べて結果を返します。
+
+** checklogin()関数(authentication.py) **
+
+    :::python
+    def checklogin(request):
+        c=SimpleCookie(request.headers.getheader('Cookie', ''))
+        m=md5.md5(fixeduser+':'+fixedpass)
+        digest=m.hexdigest()
+        if c.has_key('authhash') and c['authhash'].value==digest:
+            return True
+        else:
+            return False
+
+関数の内部では、Webブラウザが送信した、Cookieの記載されているヘッダを調べています。ヘッダの内容は、ユーザ名とパスワードから生成したMD5のハッシュです。ユーザ名とパスワードは固定なので、同じハッシュ文字列を作ってCookieの内容と照合しています。もしCookieとプログラム内部で生成した2つのハッシュが同じときには、ログイン状態と見なしてTrue
+(真)を返します。そうでない場合にはFalse(偽)を返します。
+
+最後に、このデコレータクラスを使って閲覧に認証が必要な関数を作ってみましょう。secured_exposeクラスをデコレータとして指定するだけです。ただし、このときにログインチェック用の関数オブジェクト(checklogin)を引数として渡す必要があります。
+
+このように、デコレータを作るだけで、閲覧に認証が必要な関数ができる のです。
+
+** index()関数(authentication.py) **
+
+    :::python
+    @secured_expose(checkfunc=checklogin)
+    def index(_request, foo='', d={'counter':0}):
+        body=base_body % ('<p>Logged in!</p>')
+        res=Response()
+        t=SimpleTemplate(body)
+        body=t.render(d)
+        d['counter']+=1
+        res.set_body(body)
+        return res
+    
+    if __name__=='__main__':
+        test()
+
+
+また、このモジュールの最後にWebアプリケーションサーバを起動するためのコードが記述されています。
+
+#### フォーム認証を試す
+
+プログラムができ上がったので「authentication.py」を起動して試してみましょう。
+
+authentication.pyが起動したら、http://127.0.0.1:8000/にアクセスします。index()メソッドにアクセスが行くのですが、このメソッドはデコレータによって認証が必要になるように設定されています。無認証状態でこの関数にアクセスすると、デコレータが機能して~/login_formにリダイレクトします。
+
+** 図04 ログインフォームの表示 **
+
+![図04 ログインフォームの表示](/static/images/minpy_web/14/04.png)
+
+その後、正しいユーザ名(user)とパスワード(pass)を入力すると、認証用のCookieが設定されてログイン状態になり、index()メソッドにアクセスできるようになります。
+
+** 図05 ログインに成功した場合 **
+
+![図05 ログインに成功した場合](/static/images/minpy_web/14/05.png)
+
+Cookieを設定するとき、有効期限を遠い未来に設定していました。そのため、WebアプリケーションサーバやWebブラウザを終了しても、ログイン状態が継続します。
+
+ログイン状態を解除するには、Webブラウザを使って~/logoutというURLにアクセスします。するとCookieがクリアされ、ログイン状態でなくなります。再度index()関数にアクセスするためにドキュメントルートのURLにアクセスすると、ログインフォームにリダイレクトされます。
+
+
+
+
+

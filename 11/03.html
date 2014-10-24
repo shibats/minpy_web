@@ -1,0 +1,112 @@
+title: みんなのPython Webアプリ編 - 編集用フォームを作る
+date: 2014-09-03 15:00
+fmt: markdown
+prev : /ats/stuff/minpy_web/11/02.html
+prev_title: 巡回用RSSの一覧ページを作る
+next : /ats/stuff/minpy_web/11/04.html
+next_title: 新規登録用フォームを作る
+
+### 編集用フォームを作る
+
+次に、巡回用RSS編集用のフォーム、およびデータを更新するプログラムを作りましょう。このフォームは、先ほど作ったリストからリンクされています。編集したい項目のリンクをクリックして、編集用のフォームを表示し、内容を編集する、という流れになります。
+
+リスト上のリンクには、編集するデータを特定するための情報が埋め込まれています。GETメソッドを使って、URLにデータベース上のデータを特定するためのidを埋め込みます。プログラム側では、このidを読み取って編集対象となるデータを特定します。フォームには、不正なデータが入力されることがあるかもしれません。たとえば、正しいURLが入力されていない場合、そのままデータを登録するとRSSが正しく読み込めません。そのようなことを避けるため、不正なデータが入力されたときにはフォームを再表示し、正しいデータを入力するように求めるような動作にします。不正な値が入力された場合には、フォームの横に警告の表示をするようにします。
+
+データを変更するときの流れは次の図のようになります。このように入力や出力の流れを表した図を遷移図と呼ぶことがあります。
+
+** 図03 編集フォームの遷移図 **
+
+![図03 編集フォームの遷移図](/static/images/minpy_web/11/03.png)
+
+以下が、巡回用URLを編集するためのプログラム部分となります。フォームの表示とデータの更新を1つのプログラムで行っています。
+
+** editurl.py **
+
+    ::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    
+    from simpletemplate import SimpleTemplate
+    from rssurl import Rssurl
+    from os import path
+    from httphandler import Request, Response
+    import cgitb; cgitb.enable()
+    
+    errors={}
+    value_dic={'errors':errors, 'title':'', 'url':'', 'item_id':'' }
+    
+    req=Request()
+    f=req.form
+    
+    p=path.join(path.dirname(__file__), 'editform.html')
+    
+    if not f.getvalue('posted'):
+        id=f.getvalue('id')
+        rss=Rssurl(id=int(id))
+        value_dic.update({'title':rss.title, 'url':rss.url, 'item_id':id})
+    else:
+        id=f.getvalue('id')
+        title=unicode(f.getvalue('title', ''), 'utf-8', 'ignore')
+        url=unicode(f.getvalue('url', ''), 'utf-8', 'ignore')
+        value_dic.update({'title':title, 'url':url, 'item_id':id})
+        if not title:                                      # (1)
+            errors['title']=u'タイトルを入力してください'
+        if not url.startswith('http://'):
+            errors['url']=u'正しいURLを入力してください'
+        if not errors:
+            rss=Rssurl(id=int(f.getvalue('id')))
+            rss.title=f.getvalue('title')
+            rss.url=f.getvalue('url')
+            rss.update()
+            p=path.join(path.dirname(__file__), 'posted.html')
+            value_dic['message']=u'RSS取得URLを編集しました'
+    
+    t=SimpleTemplate(file_path=p)
+    res=Response()
+    body=t.render(value_dic)
+    res.set_body(body)
+    print res
+
+フォームを表示する場合には、編集したいデータの既存の値を埋め込んで表示します。既存の値は、value_dicという辞書にしてテンプレートに渡します。入力にエラーがあった場合には、辞書のerrorsというキーに辞書を登録して渡します。テンプレート側では、辞書の内容を見て必要に応じて情報を埋め込んでいます。
+
+プログラムの後半以降、トップレベルにあるelseブロックでは、POSTされたデータの処理をしています。もし不正な値があった場合にはエラーメッセージを辞書に登録します。もし正しいデータがPOSTされた場合には、O/Rマッパーのクラスを使ってデータを更新しています。
+
+次に、データ更新用のフォームを表示するためのテンプレートを作ります。プログラムから受け取った辞書の内容を使って埋め込みを行う、というのが基本的な動作です。条件分岐($if)を使って、エラーがある場合にのみエラーの表示をしています(1)。
+
+** editform.html **
+
+    :::html
+    <html>
+      <head>
+        <meta http-equiv="content-type"
+              content="text/html;charset=utf-8" />
+        <link rel="stylesheet"
+              href="/style.css" type="text/css"/>
+      </head>
+      <body>
+      <h1 class="header">簡易RSSリーダー</h1>
+      <h2 class="title">RSS取得URLの変更</h2>
+      <p class="description">タイトルとURLを入力してください</p>
+      <form method="post" action="editurl.py">
+        <label for="title">タイトル</label>
+        <input type="text" name="title" size="40"
+                         value="${title}" />
+        $if errors.has_key('title'):
+          <span class="error">${errors.get('title')}</span>
+        $endif
+        <br clear="all"/>
+        <label for="url">RSSのURL</label>
+        <input type="text" name="url" size="40"
+                         value="${url}" />
+        $if errors.has_key('url'):
+          <span class="error">${errors.get('url')}</span>
+        $endif
+        <br clear="all"/>
+        <input type="hidden" name="posted" value="1" />
+        <input type="hidden" name="id" value="${item_id}" />
+        <input type="submit" value="編集" />
+      </form>
+      </body>
+    </html>
+
+

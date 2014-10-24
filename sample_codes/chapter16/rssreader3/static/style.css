@@ -1,0 +1,77 @@
+body {
+margin: 0.5em;
+}
+
+h1.header {
+height: 75px;
+background-color: #12a;
+color: #fff;
+margin: 0;
+padding: 30px 0 0 0.5em;
+font-family: Helvetica;
+}
+
+h2.title {
+height: 1.4em;
+border-left: 0.6em solid #12a;
+padding: 0.1em 0 0.1em 0.2em;
+}
+
+p.description {
+font-size: 90%;
+color: #444;
+margin: 0.5em 0 0.5em 0;
+}
+
+form {
+width: auto;
+margin: 1em 0 1em 0;
+padding: 0.5em;
+border: 2px dotted lightgray;
+}
+
+label {
+float: left;
+width: 10em;
+margin: 0.2em 0;
+font-weight: bold;
+}
+
+input {
+margin: 0.2em 0;
+}
+
+.error {
+color: #d22;
+font-weight: bold;
+font-size: 90%;
+}
+
+.control {
+font-weight: bold;
+font-size: 85%;
+margin: 0.2em 0 0.2em 20px;
+}
+
+.control a {
+color: #620;
+text-decoration: none;
+border-left: 0.9em solid #c42;
+padding-left: 2px;
+margin-right: 4px;
+}
+
+
+li {
+margin-bottom: 0.5em;
+}
+
+li dt {
+font-size: 90%;
+font-weight: bold;
+}
+
+li dd {
+font-size: 85%;
+font-color: #444;
+}

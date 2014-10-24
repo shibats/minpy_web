@@ -1,0 +1,472 @@
+title: みんなのPython Webアプリ編 - ウィジェットを作る
+date: 2014-09-03 15:00
+fmt: markdown
+prev : /ats/stuff/minpy_web/12/03.html
+prev_title: ウィジェットの利用
+next : /ats/stuff/minpy_web/13/index.html
+next_title: Webアプリケーションサーバ を使った開発
+
+## ウィジェットを作る
+
+Webアプリケーションの開発をより効率的にするために、ウィジェットが有効である、ということが分かっていただけたでしょうか。ウィジェットに対する理解を深める意味もこめて、実際にウィジェットを作ってみることにしましょう。
+
+Webアプリケーションで利用するウィジェットに求められる最小限度の要件は、フォームを部品として扱い、フォームを表示するためのHTML文字列を出力する、という機能です。今回作るウィジェットでは、HTMLを出力する機能に加えてバリデータも登録できるようにしましょう。ウィジェットを使って、フォームの表示とバリデーションチェックを行えるようにするわけです。
+
+フォームの部品には、テキスト入力用のフィールドやラジオボタン、メニューなど、いろいろな種類があります。フォームの部品を使い分けられるように、部品の種類ごとにWidgetのクラスを定義しましょう。Webアプリケーションフォームに埋め込みたい部品ごとにWidgetのクラスインスタンスを作り、利用することになります。
+
+** 図03 ウィジェットの機能 **
+
+![図03 ウィジェットの機能](/static/images/minpy_web/12/03.png)
+
+また、フォームの部品をひとまとめにして管理するために、Widgetのインスタンスを複数登録できるクラスを作ります。このクラスはWidgetのまとめ役となるクラスです。
+
+### ウィジェットの抽象クラスを作る
+
+フォームの部品となるウィジェットのクラスを作る前に、ウィジェットクラスの親となる抽象クラス(BaseWidgetクラス)を作りましょう。
+
+ウィジェットはフォームの部品となるHTML文字列を出力する役目を持っています。フォームの部品には、クエリのキーとなるnameアトリビュートの値やフォームのラベルなど、固有の情報を持たせる必要があります。この情報は状況によって変化します。このような情報は、ウィジェットの初期化メソッドに引数として渡すとよいでしょう。
+
+以下のコードは、ウィジェットの抽象クラスの初期化メソッドの定義部分です。フォームの部品となるHTML文字列を作るために、先ほど作ったテンプレートエンジンを利用します。そのため、まずテンプレートエンジン(SimpleTemplate)をインポートしています。
+
+** 初期化メソッド(widgets.py) **
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    
+    from simpletemplate import SimpleTemplate
+    
+    class BaseWidget(object):
+        """
+        ウィジェットのベースクラス
+        """
+    
+        def __init__(self, name, label='', options=None,
+                     validators=[], attrs={}):
+            self.name=name
+            self.label=label
+            self.options=options
+            self.validators=validators
+            self.attrs=" ".join('%s="%s"'%(k, v)
+                                for k, v in attrs.items())
+
+初期化メソッドでは、インスタンスオブジェクト自体を指す引数selfの他に、5つの引数を受け取っています。name以外の引数には初期値が割り当てられているので、オプションの引数となっています。nameはフォームのnameエレメントに埋め込む文字列を渡します。labelという引数には、フォームの部品の名称を示すラベルに表示する文字列を渡します。
+
+optionsにはシーケンスを渡します。メニューやラジオボタンなど、複数の項目から1つを選ぶようなフォームの部品で利用することを目的とした引数です。
+
+validatorsには、フォームの部品で利用するバリデータのインスタンスを渡します。フォームのクラスはバリデーションチェックを行うメソッドを持っていて、初期化メソッドに渡されたバリデータのインスタンスを使ってバリデーションチェックを行います。
+
+atrrsという引数は、フォームのエレメントに埋め込むアトリビュートを指定するための引数です。フォームの部品となるエレメントには、nameアトリビュートだけでなくいろいろなアトリビュートを指定することがあります。たとえばフォームの見栄えを変更する目的でstyleアトリビュートやclassアトリビュートを設定することがあります。この引数は、そのような細かなカスタマイズを行うために用意しています。引数には辞書を渡し、辞書のキーと値でそれぞれアトリビュート名とアトリビュート値を指定します。
+
+ウィジェットのクラスでは、抽象クラスで定義した初期化メソッドを共通して利用しています。
+
+次に、フォームのHTML文字列を作るメソッドを定義します。テンプレートエンジンを使ってフォームの部品を表示します。
+
+** HTMLを組み立てるメソッド群(widgets.py) **
+
+    :::python
+        def get_label(self, error):
+            body=("""<label for="${name}">${label}\n"""
+                  """$if error:\n"""
+                  """<span class="error">${error}</span>\n"""
+                  """$endif\n"""
+                  """</label>""")
+            t=SimpleTemplate(body)
+            return t.render({'name':self.name, 'label':self.label,
+                             'error':error})
+        
+        def get_form(self, value=None):
+            return ''
+        
+        def display(self, value=None, error=None):
+            return self.get_label(error) + self.get_form(value)
+
+このウィジェットでは、ラベルとフォーム本体を分けて表示します。ラベルの部分はどのフォーム部品でも共通化できますので、抽象クラスに共用するget_label()というメソッドを定義しています。
+
+get_label()メソッドの内部では、テンプレートエンジンに渡すテンプレート文字列を文字列リテラルとして埋め込んでいます。ラベル部分には、メソッドの引数として渡したエラー文字列を表示するようにします。
+
+get_form()メソッドはフォーム部品の本体となるHTML文字列を表示するためのメソッドです。このメソッドの返す文字列はウィジェットの種類によって異なります。抽象クラスでは、共通して利用するメソッド名を決めるために空の文字列を返す単純なメソッドを定義しています。また、このメソッドにはvalueという引数を渡します。フォームの部品にあらかじめ埋め込んでおきたい文字列などを渡すための引数です。
+
+display()メソッドはウィジェットの出力するHTML文字列全体を返すためのメソッドです。ウィジェットを使う側では、このメソッドを呼び出してHTML文字列を取得します。このメソッドはget_label()とget_form()を間接的に呼び出し、ウィジェットの文字列全体を組み立てて返します。それぞれのメソッドに渡すために、引数valueとerrorを受け取っています。
+
+最後に、バリデーションチェックを行うためのメソッドを定義します。初期化メソッドに引数として渡されたバリデータを元にバリデーションチェックを行います。
+
+** バリデートメソッド(widgets.py) **
+
+    :::python
+        def validate(self, value):
+            from validators import ValidationError
+            error=None
+            for v in self.validators:
+                try:
+                    value=v.validate(value)
+                except ValidationError, e:
+                    error=e.msg
+            return value, error
+
+
+バリデータはシーケンスに複数指定されて渡されることがあります。必須項目で、かつ整数というような複合的なバリデーションチェックに対応するためです。ループを組んでバリデータを取り出しつつ、validate()メソッドを使ってバリデーションチェックをかけています。
+
+バリデーションチェックで値が不正であることを見つけると、ValidationErrorという例外が投げられます。バリデーションチェック時には、ValidationErrorという例外だけをexcept文で捕まえるようになっています。例外オブジェクトのmsgアトリビュートにはチェックが失敗した理由が文字列で格納されています。この文字列を取り出し、変数に代入しています。
+
+このメソッドは2つの戻り値を持っています。1つは、バリデータによって変換された入力値です。もう1つはエラーです。2つ目の引数は、エラーが起こったときにのみ文字列が代入されます。エラーが起こらなかった場合にはNoneが返ります。
+
+### テキスト入力フォーム用のウィジェットを作る
+
+ウィジェットの抽象クラスが定義できましたので、次はフォームの部品に対応するウィジェットのクラスを定義しましょう。まずは、文字列を入力するために利用する2種類のウィジェットを定義します。
+
+初期化メソッドやバリデーションチェック用のメソッドは抽象クラスに定義してあります。ウィジェットに定義する必要があるのは、フォームの本体に相当するHTML文字列を出力するためのget_form()メソッドです。以下がテキストフィールド、テキストエリア用クラスの定義になります。
+
+** テキスト入力フォーム用のウィジェット(widgets.py) **
+
+    :::python
+    class Text(BaseWidget):
+        """
+        テキストフィールド用のウィジェット
+        """
+        
+        def get_form(self, value=''):
+            body=("""<input type="text" name="${name}" value="${value}" """
+                  """ ${attrs} />""")
+            t=SimpleTemplate(body)
+            return t.render({'name':self.name, 'value':value,
+                             'attrs':self.attrs})
+    
+    
+    class TextArea(BaseWidget):
+        """
+        テキストフィールド用のウィジェット
+        """
+    
+        def get_form(self, value=''):
+            body="""<textarea name="${name}" ${attrs}>${value}</textarea>"""
+            t=SimpleTemplate(body)
+            return t.render({'name':self.name, 'value':value,
+                             'attrs':self.attrs})
+
+
+どちらのクラスも、get_form()メソッドを定義していて、テンプレートエンジンを使ってフォーム本体を表現するためのHTMLを出力しています。HTMLの中には、初期化メソッドで受け取った文字列などを埋め込んでいます。また、既定値をフォームに埋め込む用途を考慮して、valueという引数をフォームに埋め込んで表示するようにテンプレートを書いてあります。
+
+なお、テンプレートの文字列を埋め込んであるリテラルの部分には、見慣れない表記が見えます。Pythonは、複数の文字列リテラルを丸カッコで囲むと、それぞれの文字列を連結して扱ってくれるのです。複数行にわたる長い文字列をスマートにソースに埋め込みたいときに利用すると便利なテクニックです。
+
+#### メニュー・ラジオボタン用のウィジェットを作る
+
+では次に、フォームに表示するメニュー(selectエレメント)を作るためのウィジェットクラスを定義してみましょう。get_form()メソッドのみを定義する、ということについてはテキストフィールドなどと変わりませんが、フォーム部品を表示するためのHTMLを出力テンプレートが少し複雑になっています。
+
+** メニューウィジェット(widgets.py) **
+
+    :::python
+    class Select(BaseWidget):
+        """
+        メニュー用のウィジェット
+        """
+    
+        def get_form(self, value=''):
+            body=("""<select name="${name}" ${attrs}>\n"""
+                  """$for v in options:\n"""
+                  """<option value="${v[0]}"\n"""
+                  """$if value==v[0]:\n"""
+                  """ selected \n"""
+                  """$endif\n"""
+                  """>${v[1]}</option>\n"""
+                  """$endfor\n"""
+                  """</select>\n""")
+            t=SimpleTemplate(body)
+            return t.render({'name':self.name, 'value':value,
+                             'options':self.options,
+                             'attrs':self.attrs})
+    
+
+
+メニュー用のウィジェットでは、メニューに表示する項目を複数HTMLの中に埋め込む必要があります。メニューに表示する項目は、文字列のシーケンスの形でウィジェットの初期化メソッドに引数として渡します。テンプレートでは、引数の内容を保存したアトリビュートを使って、項目を展開しています。
+
+テンプレートの中には$for~:構文を使ったループが見えます。ここで、初期化メソッドに渡されたシーケンスを展開しています。フォームのメニュー項目では、&lt;option&gt;タグを使ってメニューの項目を表示します。ループを使って、必要な数だけoptionエレメントを繰り返しています。
+
+メソッドに引数valueが渡されていた場合は、valueと同じ文字列を持つ項目を選択状態で表示します。メニューを選択状態で表示するにはselectedというアトリビュートをエレメントの中に記入します。そのために、条件分岐のロジックがループの中に埋め込まれています。
+
+** ラジオボタンウィジェット(widgets.py) **
+
+    :::python
+    class Radio(BaseWidget):
+        """
+        ラジオボタン用のウィジェット
+        """
+    
+        def get_form(self, value=''):
+            body=("""$for v in options:\n"""
+                  """${v[1]} : """
+                  """<input type="radio" name="${name}" value="${v[0]}"\n"""
+                  """$if value==v[0]:\n"""
+                  """ checked \n"""
+                  """$endif\n"""
+                  """>\n"""
+                  """$endfor\n""")
+            t=SimpleTemplate(body)
+            return t.render({'name':self.name, 'value':value,
+                             'options':self.options,
+                             'attrs':self.attrs})
+
+ラジオボタン用のウィジェットでも、同様に複数の項目を繰り返す必要があります。テンプレートの繰り返しロジックを使って、複数のエレメントを文字列として生成しています。
+
+ラジオボタンの場合は、同じ値を持つnameアトリビュートを埋め込んだinputエレメントを複数並べる形になります。テンプレート全体をループか囲む形になっているのはそのためです。
+
+メニューと同じように、value引数が指定されたときのために条件分岐のロジックが埋め込まれています。ラジオボタンの場合には、checkedというアトリビュートを埋め込むことで選択状態の表示になります。
+
+### サブミットボタンとリセットボタン
+
+サブミットボタンとリセットボタン用のウィジェットは、次のとおりです。それぞれ所定のinputエレメントを出力しているだけですので、特に解説する必要はないでしょう。
+
+** ボタン類のウィジェット(widgets.py) **
+
+    :::python
+    class Submit(BaseWidget):
+        """
+        サブミットボタン用のウィジェット
+        """
+    
+        def get_label(self, error):
+            return ''
+    
+        def get_form(self, value=''):
+            body=("""<input type="submit" value="${label}" """
+                  """ ${attrs} />""")
+            t=SimpleTemplate(body)
+            return t.render({'label':self.label, 'attrs':self.attrs})
+    
+    
+    class Reset(Submit):
+        """
+        リセットボタン用のウィジェット
+        """
+    
+        def get_form(self, value=''):
+            body=("""<input type="reset" value="${label}" """
+                  """ ${attrs} />""")
+            t=SimpleTemplate(body)
+            return t.render({'label':self.label, 'attrs':self.attrs})
+
+
+### フォームをまとめるウィジェットを作る
+
+フォームの部品となるウィジェットを一通り作りました。最後に、ウィジェットをまとめて登録し、フォームとして管理するためのウィジェットを作りましょう。ウィジェットクラスのインスタンスを複数シーケンスとして登録して利用します。フォーム全体を表現するためのHTML文字列を出力する機能と、フォーム全体のバリデーションチェックを行う機能も持たせます。
+
+まずは、クラスの定義と初期化関数を定義します。このクラスインスタンスは、フォーム部品となるウィジェットをシーケンスとして保持します。また、formエレメントのactionアトリビュートやmethodアトリビュートなどをこまかくコントロールするためにアトリビュートも指定できるようにします。
+
+ウィジェットのシーケンスは初期化メソッドに引数として渡します。アトリビュートを指定するためには、ウィジェットのクラスと同様に辞書を引数として渡すようにしましょう。
+
+** Formクラスの初期化メソッド(widgets.py) **
+
+    :::python
+    class Form(object):
+        """
+        ウィジェットを登録するフォーム用クラス
+        """
+    
+        def __init__(self, forms, attrs={}):
+            self.forms=forms
+            self.attrs=" ".join('%s="%s"'%(k, v)
+                                for k, v in attrs.items())
+
+
+次に、クラスインスタンスに登録したフォーム全体を表示するためのメソッドを定義します。初期化メソッドで登録したウィジェットのシーケンスを使ってループを組みます。それぞれのウィジェットのHTML文字列を生成し、全体をformエレメントで囲んで表示します。
+
+このメソッドは、フォームに埋め込んで表示する既定値と、ウィジェットに表示するエラーを辞書として引数に受け取ります。それぞれのウィジェットの既定値とエラー文字列は、フォームのnameをキーとして辞書に埋め込まれています。ループを処理する過程で、引数の辞書から既定値と値を取り出し、ウィジェットに渡しています。
+
+** フォームの表示メソッド(widgets.py) **
+
+    :::python
+        def display(self, values={}, errors={}):
+            container=''
+            for f in self.forms:
+                container+=f.display(values.get(f.name, ''),
+                                     errors.get(f.name, ''))
+                container+="""<br clear="all"/>"""
+            body=("""<form ${attrs}>\n"""
+                  """${container}\n"""
+                  """</form>\n""")
+            t=SimpleTemplate(body)
+            return t.render({'attrs':self.attrs, 'container':container})
+
+最後はフォームに登録されたウィジェット全体のバリデーションチェックを行うためのメソッドを定義します。アトリビュートからウィジェットを取り出し、それぞれのウィジェットに対してバリデーションチェックをかけていきます。
+
+ウィジェットのバリデーションチェック用メソッドは、バリデータが変換した値とエラーを戻り値として返します。その結果を辞書に登録して、値用の辞書、エラー用の辞書2つを返り値として返します。
+
+
+** Formクラスのバリデートメソッド(widgets.py) **
+
+    :::python
+        def validate(self, invalues):
+            errors={}
+            values={}
+            for f in self.forms:
+                value, error=f.validate(invalues.get(f.name, ''))
+                values[f.name]=value or ''
+                if error:
+                    errors[f.name]=error
+            return values, errors
+
+
+これでwidgetsモジュールは完成です。上記のコードを1つにして「widgets.py」というファイル名でcgi-binフォルダに保存してください。
+
+### ウィジェットとバリデータを使ったサンプルプログラム
+
+ウィジェットとバリデータを使ったサンプルプログラムを作ってみましょう。これまでもフォームや入力値のチェック(バリデーションチェック)を行うプログラムをいくつか作ってきました。今回はウィジェットとバリデータを使って、項目の多いフォームを作ってみることにしましょう。
+
+入力項目の多いWebアプリケーションとして思いつくのがアンケートフォームです。アンケートフォームとは、Webブラウザに表示したフォームに項目を入力し、アンケートを収集するためのWebアプリケーションのことです。このようなWebアプリケーションを作るときには、必須項目の記入漏れや打ち間違いのチェックが欠かせません。チェックなしに入力値を受け取ってしまうと、有効なデータが集められないのです。
+
+プログラムでリクエストを受け取り、1つ1つの項目について値をチェックすることでもアンケートを作ることはできます。しかし、項目が多くなるとチェックが大変になり、プログラムの不具合も出やすくなります。また、フォームの数が多くなるとフォームを作るのも大変になります。
+
+そこでここでは、ウィジェットとバリデータを活用して、気の利いたバリデーションチェック処理を含んだWebアプリケーションを作ってみます。フォームの項目管理と表示にウィジェットを使い、入力値のチェックにはバリデータを使います。また、データはO/Rマッパーを経由してデータベースに登録するようにします。
+
+まず、Webアプリケーションで使うO/Rマッパーのクラスやウィジェットを定義するところから始めましょう。この定義は、Webアプリケーション本体のプログラムとは別の「widgettest_classes.py」というファイルに保存するようにします。
+
+以下がO/Rマッパーのクラスを定義する部分です。POSTされた各項目について、データベースに保存できるようなカラムを定義しています。その後、必要があればテーブルを作っています。
+
+** O/Rマッピング処理(widgettest_classes.py) **
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    
+    from os import path
+    import sqlite3
+    from simplemapper import BaseMapper
+    
+    class Profile(BaseMapper):
+        rows=(('lastname', 'text'), ('firstname', 'text'),
+              ('birthyear', 'int'), ('gender', 'int'),
+              ('email', 'text'), ('url', 'text'),
+              ('language1', 'text'), ('language2', 'text'),
+              ('comment', 'text'))
+    
+    
+    p=path.join(path.dirname(__file__), 'questionnaire.dat')
+    con=sqlite3.connect(p)
+    BaseMapper.setconnection(con)
+    Profile.createtable(ignore_error=True)
+
+次に、フォームを管理するためのウィジェットを定義します。先ほど作ったウィジェットでは、フォームの部品となるウィジェットをクラスとして定義し、ウィジェットをまとめるFormクラスに引数として渡す形式でフォームを定義することになっていました。また、それぞれのウィジェットクラスでは、クラスインスタンスを作るときに、フォームのラベルや項目の他、バリデータを指定できるようになっています。
+
+** フォームの管理(widgettest_classes.py) **
+
+    :::python
+    from validators import NotEmpty, IntValidator, IntRangeValidator,\
+                          URLValidator, EmailValidator, ValidationError
+    from widgets import Text, Select, Radio, Submit, Reset, Form
+    
+    languages=[('', '---')]+[(x, x) for x in ['Perl', 'PHP', 'Python', 'Ruby']]
+    forms=( Text('lastname', u'名字', validators=(NotEmpty(),)),
+            Text('firstname', u'名前', validators=(NotEmpty(),)),
+            Select('birthyear', u'生まれた年',
+                    options=[('0', '---')]+\
+                            [(str(x), str(x)) for x in range(1940, 2007)],
+                    validators=(NotEmpty(), IntRangeValidator(1900, 2007),)),
+            Radio('gender', u'性別',
+                    options=(('1', u'男性'), ('2', u'女性')),
+                    validators=(IntRangeValidator(1, 2),)),
+            Text('email', u'メールアドレス',
+                    validators=(EmailValidator(),), attrs={'size':'40'}),
+            Text('url', u'URL',
+                    validators=(URLValidator(),), attrs={'size':'40'} ),
+            Select('language1', u'一番好きな言語は?',
+                    options=languages, validators=(NotEmpty(),)),
+            Select('language2', u'二番目に好きな言語は?',
+                    options=languages, validators=(NotEmpty(),)),
+            Text('comment', u'一言', attrs={'size':'40'} ),
+            Submit('submit', u'登録'), Reset('reset', u'クリア'))
+    form=Form( forms, {'action':'widgettest.py', 'method':'POST'} )
+
+記のサンプルでは、ウィジェットのタプルをいったんformsという変数に定義しています。タプルの中には、ウィジェットのクラスインスタンスの定義が並んでいます。この例では、変数などを経由せずクラスを直接定義して、オブジェクトとしてタプルに代入しています。
+
+フォームに表示したい項目の種類によって扱うウィジェットのクラスを分けて定義しています。表示したい項目に合わせて必要なクラスを定義します。
+
+また、表示に必要な項目、バリデータなどはクラスの初期化時に引数として渡しています。括弧の対応をよく見ながら、クラス定義の区切りに注意してコードを見ると内容をよく理解できるはずです。
+
+formsという変数に代入したウィジェットのタプルは、Form()クラスのインスタンスを作る際に引数として渡しています。
+
+#### テンプレートの作成
+
+次に、フォームを表示するためのテンプレートを作ります。フォームの表示はウィジェットが担当するので、テンプレートはとてもシンプルになっています。テンプレートではフォームオブジェクトなどを受け取り、必要に応じて表示します。また、データの登録がうまくいったときにも同じテンプレートが使えるよう、$if構文を使って簡単なロジックが埋め込んであります。
+
+** questionform.html **
+
+    ::html
+    <html>
+      <head>
+        <meta http-equiv="content-type"
+              content="text/html;charset=utf-8" />
+        <link rel="stylesheet"
+              href="/style.css" type="text/css"/>
+        <style type="text/css"><!--
+        label {display:block; font-weight: bold;}
+        .error {color: #b21; font-weight: normal;}
+        --></style>
+      </head>
+      <body>
+      <h1 class="header">アンケート</h1>
+      $if not dataposted:
+      ${form.display(values, errors)}
+      $endif
+      $if dataposted:
+      <p>アンケートを登録しました</p>
+      $endif
+      </body>
+    </html>
+
+#### Webアプリケーションの作成
+
+最後に、Webアプリケーション本体となるプログラムを作ります。O/Rマッパーのクラス、ウィジェットやテンプレートエンジンを活用して、処理を行います。30行弱のとても短いプログラムです。フォームの表示、およびクエリを受け取る処理を1つのプログラムで担当しています。
+
+** widgettest.py **
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    
+    from simpletemplate import SimpleTemplate
+    from os import path
+    from httphandler import Request, Response
+    from widgettest_classes import Profile, form
+    
+    import cgitb; cgitb.enable()
+    req=Request()
+    values={}
+    [values.update({k:req.form.getvalue(k, '')})
+                        for k in req.form.keys()]
+    cvalues, errors=form.validate(values)
+    if len(req.form.keys())==0:
+        errors={'foo':'bar'}
+    
+    res=Response()
+    p=path.join(path.dirname(__file__), 'questionform.html')
+    t=SimpleTemplate(file_path=p)
+    
+    post_values={'form':form, 'values':values, 'errors':errors,
+                 'dataposted':False}
+    if not errors:
+        post_values.update(dataposted=True)
+    body=t.render(post_values)
+    
+    res.set_body(body)
+    print res
+    
+
+このプログラムで実行していることはとても単純です。
+
+++ フォームを表示し
+++ リクエストを受け取り
+++ バリデーションチェックをかけて
+++ 結果を表示する
+
+ということだけです。バリデーションチェックの結果、入力に誤りがあったり、期待通りの値が入力されなかった場合には、フォームを再表示し、誤りの原因を表示します。
+
+** 図04 エラーが起こったら、フォームにエラーを表示する **
+
+![図04 エラーが起こったら、フォームにエラーを表示する](/static/images/minpy_web/12/04.png)
+
+プログラムの流れはとてもストレートですが、ユーザになにをすべきかを的確に表示し、正しいアンケートを収集するための十分な仕組みが備わっています。また、プログラムの基本的な流れと、フォーム項目などの設定部分が綺麗に分離しているのもこのWebアプリケーションの特徴です。プログラムの流れ(遷移)を変更したいときには本体のプログラムを修正することになります。また、フォームの項目を増やしたり、バリデーションチェックの項目を変更するときにはウィジェットの定義を変更します。
+
+Webアプリケーションの処理を抽象化することによって、プログラミングの効率がとても高くなります。同時に、プログラム内部での分化が進んで、プログラム全体の見通しがよくなるわけです。
+
+
+

@@ -1,0 +1,96 @@
+title: みんなのPython Webアプリ編 - RSSリーダーを作る その3
+date: 2014-09-03 15:00
+fmt: markdown
+prev : /ats/stuff/minpy_web/15/02.html
+prev_title: フォーム認証の機能を作る
+next : /ats/stuff/minpy_web/16/02.html
+next_title: RSSリーダーの作成
+
+# RSSリーダーを作る その3
+
+これまで作ってきたテンプレートエンジンやO/Rマッパー、ウィジェット、Webアプリケーションサーバや認証の仕組みを使って、RSSリーダーの機能拡張をしてみましょう。
+
+## 拡張版RSSリーダーの仕様を決める
+
+本書でこれまで作ってきたテンプレートエンジン、O/Rマッパー、ウィジェット、Webアプリケーションサーバは、今日的なWebアプリケーションの開発でよく使われます。本書の後半で作ってきたこのような仕組みは、Webアプリケーションの開発効率を高め、より手軽に、より安全に開発をする上で欠くことのできない仕組みとなっています。ここでは、このような仕組みを使い、RSSリーダーを再実装して、拡張してみましょう。
+
+まずは、拡張版のRSSリーダーの仕様を簡単に決めましょう。
+
+CSSを使ったデザインについては、前回の拡張でほぼ固まっています。テンプレートやCSSは、以前作ったものをそのまま流用します。
+データ入力の遷移についても、大枠は前回の拡張で固まっています。今回は、ウィジェットとバリデータを使って、データ入力のフォーム遷移をよりスマートに実装します。
+
+また、今回はWebアプリケーションサーバを活用してRSSリーダーを実装します。それに合わせて、簡単なユーザ認証の仕組みを組み込みましょう。ユーザ名とパスワードを入力してログインして初めて、RSSリーダーが使えるようにするのです。
+
+事前準備として、RSSリーダー用のスクリプトファイルを入れるためのフォルダを作ります。ここでは「rssreader3」としておきます。そこに、これまで作ってきたWebアプリケーション用の部品となるモジュールをコピーします。再度確認する意味を込めて、これまで作ってきたモジュールをリストアップしてみましょう。
+
+### 使用するモジュール **
+
+##### httphander.py
+
+リクエスト、レスポンスをPythonのインスタンスとして扱えるよ うにするクラスを定義したモジュールです。
+##### simpletemplate.py
+
+テンプレートエンジンとして使うクラスを定義したモジュールで す。
+##### simplemapper.py
+
+O/Rマッパーとして使う基底クラスを定義したモジュールです。
+
+##### validators.py
+
+フォームに入力された文字列の妥当性チェックを行うバリデータ として使うクラスを定義したモジュールです。
+
+##### widgets.py
+
+ウィジェットを定義したモジュールです。Webアプリケーション のデータ入力に利用するフォームを定義するために利用します。
+
+##### simpleappserver.py
+
+Webアプリケーションサーバとして利用するクラスを定義したモ ジュールです。
+
+##### authentication.py
+
+フォーム認証を行うために必要な関数やデコレータ関数一式を定 義したモジュールです。
+
+##### rssparser.py
+
+RSSを読み込み、Pythonのオブジェクトに変換する関数を定義し たモジュールです。
+
+#### 既存モジュールの変更
+
+widgetsモジュールとauthenticationモジュールは、このRSSリーダー用に改良を加えます。まずwidgetsモジュールには、次のHiddenクラスを追加します。
+
+** Hiddenクラス(widgets.py) **
+
+    :::python
+    class Hidden(Submit):
+        """
+        Hiddenフィールド用のウィジェット
+        """
+    
+        def get_form(self, value=''):
+            body=("""<input type="hidden" name="${name}" value="${value}" """
+                  """ ${attrs} />""")
+            t=SimpleTemplate(body)
+            return t.render({'name':self.name, 'value':value,
+                             'attrs':self.attrs})
+
+そしてauthenticationモジュールは、ログインフォームをテンプレートで表示するように修正します。主な変更部分は以下のとおりです。詳しくは本書のサポートサイトからダウンロードできるサンプルファイルを参照してください。
+
+** authentication.pyの変更 **
+
+    :::python
+    def relativepath(p):
+        return path.join(path.dirname(__file__), p)
+    
+    @expose
+    def login_form(_request, values={}, errors={}):
+        res=Response()
+        t=SimpleTemplate(file_path=relativepath('form.html'))
+        values['password']=''
+        body=t.render({'form':loginform, 'values':values, 'errors':errors,
+                       'message':u'ログイン'})
+        res.set_body(body)
+        return res
+
+
+

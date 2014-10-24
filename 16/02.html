@@ -1,0 +1,328 @@
+title: みんなのPython Webアプリ編 - RSSリーダーの作成
+date: 2014-09-03 15:00
+fmt: markdown
+prev : /ats/stuff/minpy_web/16/index.html
+prev_title: RSSリーダーを作る その3
+next : /ats/stuff/minpy_web/16/03.html
+next_title: 機能拡張のためのヒント
+
+# RSSリーダーの作成
+
+データを保存するための仕組みと、フォームを使ったデータ入力の遷移を作るための下準備をします。データを保存するためにはO/Rマッパー用のクラスを作ります。フォームを使ったデータ入力の遷移を作るためには、ウィジェットを定義します。Webアプリケーションのロジックに直接関係のないクラスは、便利のために独立した「rssclasses.py」というモジュールファイルとして定義することにしましょう。
+
+まずは、O/Rマッパーのクラス部分を定義します。コードの内容は、前回作ったO/Rマッパークラスの定義とまったく同じです。
+
+** Rssurlクラス(rssclasses.py) **
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    
+    import sqlite3
+    from os import path
+    from simplemapper import BaseMapper
+    
+    class Rssurl(BaseMapper):
+        rows=(('title', 'text'), ('url', 'text'))
+    
+    p=path.join(path.dirname(__file__), 'urls.dat')
+    con=sqlite3.connect(p)
+    BaseMapper.setconnection(con)
+    
+    Rssurl.createtable(ignore_error=True)
+
+次に、RSS巡回用URLを編集するためのフォームを定義します。フォームはウィジェットとして定義します。新規登録用、編集用に2つのフォームが必要になります。
+
+データの新規登録フォームと編集フォームはとても似通っています。編集フォーム(editforms)と追加フォーム(addforms)の違いは一点だけです。編集用のウィジェットには、編集対象となるデータを指すためにIDというフィールドが追加されています。
+
+前回作ったRSSリーダーでは、編集フォームと追加フォームで、フォームのHTMLとバリデーションチェック用のソースコードが重複してしまっていました。実際、前回のRSSリーダーのソースコードでは、ソースコードが約15行、フォームのHTMLが約20行重複しています。
+
+ウィジェットを使うことによって、HTMLの重複がなくなります。また、バリデーションチェックの処理がバリデータとして抽象化されることで、スッキリ記述できるようになっているのが分かります。
+
+** フォーム用ウィジェット(rssclasses.py) **
+
+    :::python
+    from validators import NotEmpty, IntValidator, URLValidator
+    from widgets import Hidden, Text, TextArea, Submit, Reset, Form
+    
+    editforms=(Text('title', u'タイトル',
+                validators=(NotEmpty(),), attrs={'size':40}),
+               Text('url', u'RSSのURL',
+                validators=(URLValidator(),), attrs={'size':40}),
+               Hidden('item_id', u'ID',
+                validators=(IntValidator(),) ),
+               Submit('submit', u'登録'))
+    
+    editform=Form(editforms, {'action':'/edit', 'method':'POST'})
+    
+    addforms=(Text('title', u'タイトル',
+                validators=(NotEmpty(),), attrs={'size':40}),
+              Text('url', u'RSSのURL',
+                validators=(URLValidator(),), attrs={'size':40}),
+              Submit('submit', u'登録'))
+    
+    addform=Form(addforms, {'action':'/add', 'method':'POST'})
+    
+
+### 追加フォームを作る
+
+次にRSSリーダーのアプリケーション本体を作成します。これは「rssreader3.py」というファイル名にしましょう。
+
+まず実際にリクエストを受け取る関数を作ります。今回はWebアプリケーションの開発にWebアプリケーションサーバを活用します。本書で作ったWebアプリケーションサーバを使うには、リクエストを受け取る関数を定義する必要があります。定義した関数にデコレータを使って加工を施すと、リクエストを受け取れるようになります。
+
+まずは、データを追加するためのフォームを作りましょう。バリデーションチェックなどを含めた遷移を実装します。
+
+データの追加を行う遷移一式を作るためには、フォームを表示する関数とフォームのデータを受け取り登録を行う関数の2つを作ります。フォームの表示にはウィジェットを作ります。また、フォームからデータを受け取る関数では、バリデータを使ってデータの妥当性チェックを行います。必要があればフォームの再表示をして、正しいデータを入力するようユーザに促します。
+
+￼￼￼以下が登録の遷移を実現する2つの関数です。前半に必要なモジュールをインポートする部分があります。その後、リクエストを受ける関数が並んでいます。
+
+add_form()関数でフォームを表示し、add()関数で妥当性のチェックやデータの登録を行います。リクエストのクエリは関数の引数となって受け取ることができます。Webアプリケーションを開発するときには、ごく普通の関数を作るときと同じような手法が使えるわけです。なお、この関数には、http://127.0.0.1:8000/add_formのようなURLでアクセスします。また、secured_exposeデコレータを使って、ログインをしないと関数にアクセスできないように指定しています。
+
+** 新規追加フォーム(rssreader3.py) **<br>
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    
+    from os import path
+    from copy import copy
+    from simpleappserver import expose, test
+    from httphandler import Response, get_htmltemplate
+    from simpletemplate import SimpleTemplate
+    
+    from authentication import secured_expose, relativepath, checklogin
+    
+    from rssparser import parse_rss
+    from rssclasses import Rssurl, addform, editform
+    
+    def get_add_form(values={}, errors={}):
+        res=Response()
+        t=SimpleTemplate(file_path=relativepath('form.html'))
+        body=t.render({'message': u'RSS巡回用URLの追加',
+                       'form':addform,
+                       'values':values, 'errors':errors})
+        res.set_body(body)
+        return res
+    
+    @secured_expose(checkfunc=checklogin)
+    def add_form(_request, values={}, errors={}):
+        return get_add_form(values, errors)
+    
+    @secured_expose(checkfunc=checklogin)
+    def add(_request, title='', url=''):
+        res=Response()
+        values, errors=addform.validate({'title':title, 'url':url})
+        if [ x for x in Rssurl.select(url=url)]:
+            errors['url']=u'このURLは登録済みです'
+        if errors:
+            return get_add_form(values, errors)
+        Rssurl(title=title, url=url)
+        t=SimpleTemplate(file_path=relativepath('posted.html'))
+        body=t.render({'message': u'巡回用URLを追加しました'})
+        res.set_body(body)
+        return res
+
+### 編集フォームを作る
+
+追加フォームができたので、今度はデータを編集するためのフォームを作ります。追加フォームと同じように、遷移を作るには2つの関数が必要です。1つはフォームを表示する関数edit_form()、もう1つはデータの更新をする関数edit()です。
+
+追加用の関数と同様に、ウィジェットを使ってフォームを表示し、バリデータで妥当性のチェックをし、期待通りのデータが登録されていれば、データを登録します。
+
+追加用の関数と異なっている点は、編集対象となるデータを指定する引数IDが追加されている点です。edit()関数では、引数idを使って編集対象となるデータを特定し、O/Rマッパーのクラスを使ってインスタンスを取得しています。インスタンスのアトリビュートに代入後、update()メソッドを呼ぶことでデータの更新を行います。
+
+** 編集フォーム(rssreader3.py) **
+
+    :::python
+    def get_edit_form(item_id, values={}, errors={}):
+        res=Response()
+        t=SimpleTemplate(file_path=relativepath('form.html'))
+        if not values:
+            for item in Rssurl.select(id=item_id):
+                pass
+            values={'item_id':item_id, 'title':item.title, 'url':item.url}
+        body=t.render({'message': u'RSS巡回用URLの編集',
+                       'form':editform,
+                       'values':values, 'errors':errors})
+        res.set_body(body)
+        return res
+    
+    @secured_expose(checkfunc=checklogin)
+    def edit_form(_request, item_id, values={}, errors={}):
+        return get_edit_form(item_id, values, errors)
+    
+    @secured_expose(checkfunc=checklogin)
+    def edit(_request, item_id, title='', url=''):
+        res=Response()
+        values, errors=editform.validate({'item_id':item_id,
+                                'title':title, 'url':url})
+        if errors:
+            return get_edit_form(item_id, values, errors)
+        for item in Rssurl.select(id=item_id):
+            item.title=title
+            item.url=url
+        t=SimpleTemplate(file_path=relativepath('posted.html'))
+        body=t.render({'message': u'巡回用URLを編集しました'})
+        res.set_body(body)
+        return res
+
+### 編集用URL一覧ページを作る
+
+新規追加、編集用のフォームができました。次に編集フォームにリンクするリストを作ります。
+
+リストを表示するためには、O/Rマッパーのクラスを使い、RSS巡回用URLオブジェクトをすべて取得します。取得したオブジェクトをリストに格納し、テンプレートエンジンに渡して表示をする、という手順でリストを表示します。テンプレートエンジンとO/Rマッパーのおかげで、コードの構成がとてもシンプルになっています。また、Webアプリケーションサーバを使って開発しているため、関数を定義するだけでレスポンスに対応することができます。
+
+** 編集フォームにリンクするリスト(rssreader3.py) **
+
+    :::python
+    @secured_expose(checkfunc=checklogin)
+    def listurl(_request):
+        res=Response()
+        rsslist=Rssurl.select()
+        t=SimpleTemplate(file_path=relativepath('urllist.html'))
+        body=t.render({'rsslist': rsslist})
+        res.set_body(body)
+        return res
+
+### RSS一覧ページを作る
+
+最後に、登録されているRSSを巡回し、一覧ページを表示するための関数を作ります。まずはO/Rマッパーのクラスを使って巡回用のURLを取得し、rssparserモジュールのparse_rss()関数を使ってRSSをPythonのオブジェクトに変換します。
+
+変換した結果は辞書としてリストに格納します。辞書をリストに格納し、テンプレートエンジンに渡してRSSを表示します。
+
+** RSS一覧ページ編集フォームにリンクするリスト **
+
+    :::python
+    @secured_expose(checkfunc=checklogin)
+    def index(_request):
+        rsslist=[]
+        try:
+            for rss in Rssurl.select(order_by='id'):
+                rsslist.extend(parse_rss(rss.url))
+        except:
+            pass
+        
+        res=Response()
+        p=path.join(path.dirname(__file__), 'rsslist.html')
+        t=SimpleTemplate(file_path=p)
+        body=t.render({'rsslist':rsslist[:20]})
+        res.set_body(body)
+        return res
+
+これでRSSリーダーは完成です。
+
+### テンプレートの作成
+
+最後にテンプレートエンジンが使用するテンプレートを作成します。作成するのは次の4つです。
+
+** form.html **
+
+    :::html
+    <html>
+      <head>
+        <meta http-equiv="content-type"
+              content="text/html;charset=utf-8" />
+        <link rel="stylesheet"
+              href="/static/style.css" type="text/css"/>
+        <style type="text/css"><!--
+        label {display:block; font-weight: bold;}
+        .error {color: #b21; font-weight: normal;}
+        --></style>
+      </head>
+      <body>
+      <h1 class="header">${message}</h1>
+      ${form.display(values, errors)}
+      </body>
+    </html>
+
+
+** posted.html **
+
+    :::html
+    <html>
+      <head>
+        <meta http-equiv="content-type"
+              content="text/html;charset=utf-8" />
+        <link rel="stylesheet"
+              href="/static/style.css" type="text/css"/>
+      </head>
+      <body>
+      <h1 class="header">簡易RSSリーダー</h1>
+      <p class="description">${message}</p>
+      <a href="./listurl">RSSのリストに戻る</a>
+      </body>
+    </html>
+
+** rsslist.html **
+
+    :::html
+    <html>
+      <head>
+        <meta http-equiv="content-type"
+              content="text/html;charset=utf-8" />
+        <link rel="stylesheet"
+              href="/static/style.css" type="text/css"/>
+      </head>
+      <body>
+      <h1 class="header">簡易RSSリーダー</h1>
+      <h2 class="title">RSSの閲覧</h2>
+      <div class="control">
+        <a href="listurl">RSSの編集</a>
+        <a href="add_form">新規追加</a>
+      </div>
+      <ul>
+      $for item in rsslist:
+        <li>
+          <dt>
+            <a href="${item.get('link', '')}">
+              ${item.get('title', '')}
+            </a>
+            (${item.get('pubDate', '')})
+          </dt>
+          <dd>
+            ${item.get('description', '')}
+          </dd>
+        <li>
+      $endfor
+      </ul>
+      </body>
+    </html>
+
+** urllist.html **
+
+    :::html
+    <html>
+      <head>
+        <meta http-equiv="content-type"
+              content="text/html;charset=utf-8" />
+        <link rel="stylesheet"
+              href="/static/style.css" type="text/css"/>
+      </head>
+      <body>
+      <h1 class="header">簡易RSSリーダー</h1>
+      <h2 class="title">RSSの追加，編集</h2>
+      <div class="control">
+        <a href="/add_form">新しいRSSを追加</a>
+        <a href="/">RSS一覧に戻る</a>
+      </div>
+      <ol>
+      $for item in rsslist:
+        <li>
+          ${item.title}
+          <span class="control">
+          <a href="./edit_form?item_id=${item.id}">編集</a>
+          </span>
+        </li>
+      $endfor
+      </ol>
+      </body>
+    </html>
+
+### RSSリーダーの実行
+
+このRSSリーダー・Webアプリケーションを実行してみましょう。すでにPythonのWebサーバが起動している場合は終了させてから、「rssreader3.py」を起動します。そしてhttp://127.0.0.1:8000/にアクセスします。
+
+ログインフォームが表示されますので、ユーザ名(user)とパスワード(pass)を入力すると、RSSの一覧が画面が表示されます。操作方法自体はrssreader2.pyと同じです。
+
+
+
+

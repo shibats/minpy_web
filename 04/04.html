@@ -1,0 +1,94 @@
+title: みんなのPython Webアプリ編 - クエリとリスト
+date: 2014-09-03 15:00
+fmt: markdown
+prev : /ats/stuff/minpy_web/04/03.html
+prev_title: データ型の変換
+next : /ats/stuff/minpy_web/05/index.html
+next_title: HTTPの詳細
+
+### クエリとリスト
+
+WebアプリケーションのUIとなるフォーム・コントロールの中には、複数の値を指定できるものがあります。チェックボックスがその1つです。チェックボックスで複数の項目を選択すると、Pythonのプログラムではリストとして受け取ることになります。また、同じフォームの中に同一のnameを持つコントロールが複数あり、それぞれの項目に値が設定されている場合も、同様にリストが渡ってきます。
+
+ただし、チェックボックスに相当するクエリに必ずリストが返ってくるとは限りません。チェックボックスで1つしか項目が選択されなかった場合には、クエリには文字列が返ってきます。つまり、コントロールの選択状態によってクエリの内容が異なるわけです。
+
+クエリの内容がコントロールの選択状態によって異なると、ちょっと困ったことが起こります。特にPythonの場合、リストも文字列型も同じシーケンス型です。リストが返ってくることを前提にプログラムを書くと、文字列が返ってきたときもリストが返ってきたときも、表面上は問題なく処理が実行できてしまうのです。
+
+簡単なプログラムを作って確認してみましょう。チェックボックスのあるUIと、リクエストを受け、チェックされた項目を表示するプログラムを設置してみます。「checkbox.html」はPythonのWebサーバと同じ階層に、「querytest.py」はcgi-bin以下に実行権限を与えて設置してください。
+
+** List07 checkbox.html **
+
+    :::html
+    <html>
+    <head>
+    <meta http-equiv="content-type" content="text/html;charset=utf-8"> </head>
+    <body>
+       <form action="/cgi-bin/querytest2.py"
+             method="POST">
+           <input type="checkbox" name="language" value="Python"/>
+           Python<br />
+           <input type="checkbox" name="language" value="Ruby"/>
+           Ruby<br />
+           <input type="checkbox" name="language" value="Perl"/>
+           Perl<br />
+           <input type="checkbox" name="language" value="PHP"/>
+           PHP<br />
+           <input type="submit" name="submit" />
+       </form>
+    </body>
+    </html>
+
+** List07 querytest2.py **
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    import cgi
+    form=cgi.FieldStorage()
+    html_body = u"""
+    <html>
+    <head>
+    <meta http-equiv="content-type" content="text/html;charset=utf-8"> </head>
+    <body>
+    %s
+    </body>
+    </html>"""
+    content=''
+    for cnt, item in enumerate(form.getvalue('language')):
+        content+="%d : %s <br />" % (cnt+1, item)
+    print "Content-type: text/html¥n"
+    print (html_body % content).encode('utf-8')
+
+プログラムでは、組み込み関数enumerate()を使ってシーケンスの要素と要素番号を取り出し、ループ処理を行っています。ループの中では、文字列フォーマット機能を使って、結果として表示する文字列を組み立てています。
+
+チェックボックスを2つ以上選択すると、選択した項目が期待通りに表示されます。チェックボックスが1つの場合は、文字列が分割されて表示されてしまいます。文字列もシーケンスなので、ループの中で1文字ずつに分解され、処理されてしまうわけです。
+
+
+** 図05 Pythonではリストも文字列も同じシーケンス **
+
+![図05 Pythonではリストも文字列も同じシーケンス](/static/images/minpy_web/04/05.png)
+
+このようなことを避けるためには2つの対策が考えられます。
+
+1つは、事前にクエリの型を調べる方法です。組み込み関数のisinstance()を使うと、型のチェックが行えます。文字列型であることを調べるためには、basestringが利用できます。リスト型であることを調べるためにはlistが利用できます。インタラクティブシェルで試してみましょう。
+
+    :::python
+    >>> isinstance('123', basestring) True
+    >>> isinstance('123', list)
+    False
+    >>> isinstance(['Python', 'Ruby'], list) True
+
+このような方法を使い、クエリの型のチェックが実行できます。型チェックを行い、if文などで場合分けをして処理を振り分けるのです。
+もっと簡易な方法は、クエリのデータを持っているFieldStorageオブジェクトのメソッドを使う、という方法です。FieldStorageオブジェクトには、getvalue()メソッドの他にも、クエリの値を取り出すためのメソッドがいくつか定義されています。
+
+#### getfirs(t name [, default])
+
+nameを引数に指定して、クエリを取り出します。対象となるnameの値が1つの場合も複数の場合も、必ず最初の要素となる文字列を返します。複数選択することのないコントロールの値を取り出すときに利用すると便利です。
+
+#### getlis(tname)
+
+nameを指定してクエリの要素を取り出します。戻り値は必ず文字列のリストになります。
+
+ここで紹介したメソッドは、フォーム上にnameが複数あるケースをスマートに扱うように設計されています。先ほどのプログラムでは、必ず文字列のリストを得た方が処理が楽になります。ですので「form.getvalue('language')」の代わりに「form.getlist('language')」とすればよいことになります。
+
+

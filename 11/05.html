@@ -1,0 +1,91 @@
+title: みんなのPython Webアプリ編 - RSSの一覧ページを作る
+date: 2014-09-03 15:00
+fmt: markdown
+prev : /ats/stuff/minpy_web/10/03.html
+prev_title: 新規登録用フォームを作る
+next : /ats/stuff/minpy_web/12/index.html
+next_title: バリデータとウィジェット |フォーム処理の抽象化
+
+
+### RSSの一覧ページを作る
+
+登録、更新系の遷移が一通りできました。最後に、登録されているRSSを巡回し、一覧表示するプログラムを作ります。
+
+RSSを取得し、Pythonのデータ型に変換する必要があります。これには以前作った「rssparser.py」というモジュールが利用できます。RSSの取得に使うURLはデータベースに入っています。O/Rマッパーのクラスを使いデータを取り出し、RSSを順番に読み込んでいきます。読み込んだデータはシーケンスにして、テンプレートに渡します。テンプレートではループを使ってデータを表示します。
+
+以下がRSSを巡回するプログラムです。前半ではモジュールのインポートを行っています。後半はテンプレートエンジンを使った表示を行っています。処理の本体は中ほどの2行のみです(1)。O/Rマッパーを使ってデータベースからデータを取り出し、モジュールの関数を呼び出してRSSのデータを辞書のリストに変換しています。
+
+なお、このプログラムでは、Webブラウザでアクセスしたときに毎回RSSを読み込んでいます。
+
+** rssreader2.py **
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    
+    from simpletemplate import SimpleTemplate
+    from rssurl import Rssurl
+    from os import path
+    from httphandler import Request, Response
+    from rssparser import parse_rss
+    import cgitb; cgitb.enable()
+    
+    rsslist=[]
+    try:
+        for rss in Rssurl.select(order_by='id'):
+            rsslist.extend(parse_rss(rss.url))
+    except:
+        pass
+    
+    res=Response()
+    p=path.join(path.dirname(__file__), 'rsslist.html')
+    t=SimpleTemplate(file_path=p)
+    body=t.render({'rsslist':rsslist[:20]})
+    res.set_body(body)
+    print res
+
+以下がRSSの一覧を表示するためのテンプレートです。プログラムから受け取ったシーケンスを使ってループを実行し、必要な情報を表示しています。
+
+** rsslist.html **
+
+    :::html
+    <html>
+      <head>
+        <meta http-equiv="content-type"
+              content="text/html;charset=utf-8" />
+        <link rel="stylesheet"
+              href="/style.css" type="text/css"/>
+      </head>
+      <body>
+      <h1 class="header">簡易RSSリーダー</h1>
+      <h2 class="title">RSSの閲覧</h2>
+      <div class="control">
+        <a href="./listurl.py">RSSの編集</a>
+        <a href="./addurl.py">新規追加</a>
+      </div>
+      <ul>
+      $for item in rsslist:
+        <li>
+          <dt>
+            <a href="${item.get('link', '')}">
+              ${item.get('title', '')}
+            </a>
+            (${item.get('pubDate', '')})
+          </dt>
+          <dd>
+            ${item.get('description', '')}
+          </dd>
+        <li>
+      $endfor
+      </ul>
+      </body>
+    </html>
+
+「簡易RSSリーダー」に、任意のRSSを登録する機能を追加してみました。今回実装した、データの一覧や更新、追加という機能は、多くのWebアプリケーションが持つ機能です。フォームから登録されたデータが正しいかどうかを調べる処理をバリデーション(妥当性)チェックと呼びます。この機能も、今日的なWebアプリケーションによく搭載されています。使いやすいWebアプリケーションを作る上で、必須の機能です。
+
+リクエストやレスポンスをクラスとして抽象化し、テンプレートエンジンやO/Rマッパーというような仕組みを使うことによって、Webアプリケーションの開発は効率的になってきました。しかし、実際により高度で気の利いた機能を持つWebアプリケーションを作ってみると、また冗長な部分、重複している部分が見えてきます。この後の章では、高度な機能の実装を助けるための仕組みについて考えてみたいと思います。
+
+
+
+
+

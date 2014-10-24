@@ -1,0 +1,33 @@
+<html>
+  <head>
+    <meta http-equiv="content-type"
+          content="text/html;charset=utf-8" />
+    <link rel="stylesheet"
+          href="/style.css" type="text/css"/>
+  </head>
+  <body>
+  <h1 class="header">簡易RSSリーダー</h1>
+  <h2 class="title">RSS取得URLの追加</h2>
+  <p class="description">タイトルとURLを入力してください</p>
+  <form method="post" action="./addurl.py">
+    <label for="title">タイトル</label>
+    <input type="text" name="title" size="40"
+                     value="${title}" />
+    $if errors.has_key('title'):
+      <span class="error">${errors.get('title')}</span>
+    $endif
+    <br clear="all"/>
+    <label for="url">RSSのURL</label>
+    <input type="text" name="url" size="40"
+                     value="${url}" />
+    $if errors.has_key('url'):
+      <span class="error">${errors.get('url')}</span>
+    $endif
+    <br clear="all"/>
+    <input type="hidden" name="posted" value="1" />
+    <input type="hidden" name="id" value="${item_id}" />
+    <input type="submit" value="追加" />
+  </form>
+  </body>
+</html>
+

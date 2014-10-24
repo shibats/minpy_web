@@ -1,0 +1,26 @@
+<html>
+  <head>
+    <meta http-equiv="content-type"
+          content="text/html;charset=utf-8" />
+  </head>
+  <body>
+  <h1>簡易ブックマーク</h1>
+  $if message:
+  <p>${message}</p>
+  $endif
+  <form method="post" action="">
+    タイトル : <input type="text" name="title" size="40"
+                     value="${title}" /><br />
+    URL　　 : <input type="text" name="url" size="40"
+                     value="${url}" /><br />
+    <input type="hidden" name="post" value="1" />
+    <input type="submit" />
+  </form>
+  <ul>
+  $for item in bookmarks:
+  <dt>${item[0]} </dt>
+  <dd>${item[1]} </dd>
+  $endfor
+  </ul>
+  </body>
+</html>

@@ -1,0 +1,109 @@
+title: みんなのPython Webアプリ編 - 新規登録用フォームを作る
+date: 2014-09-03 15:00
+fmt: markdown
+prev : /ats/stuff/minpy_web/11/03.html
+prev_title: 編集用フォームを作る
+next : /ats/stuff/minpy_web/11/05.html
+next_title: RSSの一覧ページを作る
+
+### 新規登録用フォームを作る
+
+更新用フォームの次は、巡回用RSSの新規登録を行うフォームを作りましょう。入力値のチェックが必要であることなど、新規登録用フォームの機能や働きは更新用フォームにとてもよく似ています。たいていのWebアプリケーションでは、データの追加と更新を行う部分はとてもよく似通った処理になります。
+
+ただし、データを新しく登録するわけですから、初期状態のフォームにはなにも表示しません。また、同じURLを持つURLを複数登録しても無意味です。入力値のチェックとして、登録済みのURLと同じであればエラーとみなす、というチェックを加えましょう。
+
+** 図04 新規登録フォームの遷移図 **
+
+![図04 新規登録フォームの遷移図](/static/images/minpy_web/11/04.png)
+
+以下が、巡回用URLを新規登録するためのプログラム部分となります。更新フォームと同じく、フォームの表示とデータの追加を1つのプログラムで行っています。
+
+** addurl.py **
+
+    :::python
+    #!/usr/bin/env python
+    # coding: utf-8
+    
+    from simpletemplate import SimpleTemplate
+    from rssurl import Rssurl
+    from os import path
+    from httphandler import Request, Response
+    import cgitb; cgitb.enable()
+    
+    errors={}
+    value_dic={'errors':errors, 'title':'', 'url':'', 'item_id':''}
+    
+    req=Request()
+    f=req.form
+    
+    if f.getvalue('posted'):
+        title=unicode(f.getvalue('title', ''), 'utf-8', 'ignore')
+        url=unicode(f.getvalue('url', ''), 'utf-8', 'ignore')
+        value_dic.update({'title':title, 'url':url})
+        if not title:
+            errors['title']=u'タイトルを入力してください'
+        if not url.startswith('http://'):
+            errors['url']=u'正しいURLを入力してください'
+        if [x for x in Rssurl.select(url=url)]:         # (1)
+            errors['url']=u'このURLは登録済みです'
+        if not errors:
+            Rssurl(title=title, url=url)
+            p=path.join(path.dirname(__file__), 'posted.html')
+            value_dic['message']=u'RSS取得URLを追加しました'
+    
+    res=Response()
+    p=path.join(path.dirname(__file__), 'addform.html')
+    t=SimpleTemplate(file_path=p)
+    body=t.render(value_dic)
+    res.set_body(body)
+    print res
+
+トップレベルにあるifブロックの内部で、データのチェックと登録を行っています。入れ子になったifブロックの3番目では、すでに登録されているURLとの重複チェックを行っています(1)。リスト内包表記を使ったたった1行の処理で重複チェックが行えているわけです。O/Rマッパーを使うと、Python的な簡潔な記法でデータベースの処理ができ、直感的なプログラムが書けるようになります。
+
+更新用のプログラムと同じように、辞書の形式でテンプレートに値を渡します。POSTされた値にエラーがあった場合には、errorsというキーに辞書を渡し、エラーの内容を表示しています。
+
+では次に、追加用フォームを表示するためのテンプレートを作りましょう。このテンプレートは更新用のフォーム(editform.html)とほぼ同じです。フォームのactionアトリビュートとボタンの名前が異なるくらいです。
+
+** addform.html **
+
+    :::html
+    <html>
+      <head>
+        <meta http-equiv="content-type"
+              content="text/html;charset=utf-8" />
+        <link rel="stylesheet"
+              href="/style.css" type="text/css"/>
+      </head>
+      <body>
+      <h1 class="header">簡易RSSリーダー</h1>
+      <h2 class="title">RSS取得URLの追加</h2>
+      <p class="description">タイトルとURLを入力してください</p>
+      <form method="post" action="./addurl.py">
+        <label for="title">タイトル</label>
+        <input type="text" name="title" size="40"
+                         value="${title}" />
+        $if errors.has_key('title'):
+          <span class="error">${errors.get('title')}</span>
+        $endif
+        <br clear="all"/>
+        <label for="url">RSSのURL</label>
+        <input type="text" name="url" size="40"
+                         value="${url}" />
+        $if errors.has_key('url'):
+          <span class="error">${errors.get('url')}</span>
+        $endif
+        <br clear="all"/>
+        <input type="hidden" name="posted" value="1" />
+        <input type="hidden" name="id" value="${item_id}" />
+        <input type="submit" value="追加" />
+      </form>
+      </body>
+    </html>
+
+
+
+
+
+
+
+
