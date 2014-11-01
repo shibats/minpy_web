@@ -160,6 +160,7 @@ add_form()関数でフォームを表示し、add()関数で妥当性の�
         for item in Rssurl.select(id=item_id):
             item.title=title
             item.url=url
+            item.update()
         t=SimpleTemplate(file_path=relativepath('posted.html'))
         body=t.render({'message': u'巡回用URLを編集しました'})
         res.set_body(body)
