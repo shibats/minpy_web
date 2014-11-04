@@ -23,7 +23,7 @@ Webアプリケーションのセキュリティホールとして使われ�
 
     http://127.0.0.1:8000/?name=%22/%3E%3Cscript%3Ealert('Hello!')%3C/script%3E
 
-このURLを使うと、HTMLの内部に"/><script>alert('Hello!')</script>という文字列を埋め込むことになります。結果としてHTMLにJavaScriptの実行コードが埋め込まれ、アラート表示のダイアログが表示されたはずです。
+このURLを使うと、HTMLの内部に"/&gt;&lt;script&gt;alert('Hello!')&lt;/script&gt;という文字列を埋め込むことになります。結果としてHTMLにJavaScriptの実行コードが埋め込まれ、アラート表示のダイアログが表示されたはずです。
 
 ** 図02 アラートボックス **
 
