@@ -1,32 +1,35 @@
-title: みんなのPython Webアプリ編 - CGIHTTPServerを使う
-date: 2014-09-03 15:00
+title: みんなのPython Webアプリ編 - PythonのスクリプトをWebサーバの中で動かす
+date: 2014-11-08 12:45
 fmt: markdown
 prev : /ats/stuff/minpy_web/03/index.html
 prev_title: PythonでWebサーバを作る
 next : /ats/stuff/minpy_web/04/index.html
 next_title: Webアプリケーションに値を渡す
 
-## CGIHTTPServerを使う
+## PythonのスクリプトをWebサーバの中で動かす
 
-標準ライブラリには、Pythonで書かれたプログラムをWebサーバの中で実行できるライブラリもあります。それが「CGIHTTPServer」です。CGIHTTPServerを使うと、Webサーバを用意したり設定ファイルを編集することなしに、PythonでWebアプリケーションを作ることができます。Pythonがインストールされたパソコンだけがあればよいので、とても手軽にWebアプリケーションを作って試すことができます。
-
-### CGIHTTPServerを起動するスクリプト
+http.serverモジュールでは、Pythonで書かれたプログラムをWebサーバの中で実行することもできます。その機能を使うと、Webサーバを用意したり設定ファイルを編集することなしに、PythonでWebアプリケーションを作ることができます。Pythonがインストールされたパソコンだけがあればよいので、とても手軽にWebアプリケーションを作って試すことができます。
 
 先ほどスクリプトファイルとHTMLファイルを設置したフォルダに、別のスクリプトファイルを設置してください。
 
 ** List03 cgiserver.py **
 
     :::python
-    import CGIHTTPServer
-    CGIHTTPServer.test()
+    import http.server
+    
+    server_address = ("", 8000)
+    handler_class = http.server.CGIHTTPRequestHandler #1 ハンドラを設定
+    server = http.server.HTTPServer(server_address, handler_class)
+    server.serve_forever()
 
 先ほどのスクリプトファイルと同じように、このスクリプトファイルを起動します。すると、同じようにWebサーバが立ち上がります。Webブラウザでhttp://127.0.0.1:8000/というURLを開いてください。index.htmlの内容が表示されるはずです。このままサーバを立ち上げておいてください。
 
 ### Webサーバにプログラムを設置する
 
-SimpleHTTPServerはファイルや画像を扱う機能しか持っていませんでした。CGIHTTPServerを使うと、サーバ上でPythonのプログラムを動かすことができます。Pythonのプログラムが出力した結果をレスポンスとして返すことができるのです。レスポンスはWebブラウザが受け取って表示します。つまり、PythonのプログラムとWebブラウザの間で通信ができるわけです。クライアントとサーバの間で通信を行うのは、Webアプリケーションの動作原理の最も基本的な部分です。
+先ほどのスクリプトはファイルや画像を扱う機能しか持っていませんでした。しかし、このスプリプトを使うと、サーバ上でPythonのプログラムを動かすことができます。Pythonのプログラムが出力した結果をレスポンスとして返すことができるのです。このスクリプトはハンドラにCGIHTTPRequestHandlerを使っています。(1)　ハンドラとは何かの出来事が起きた時にだけ、決まった処理をするもののことです。先ほどのスクリプトのSimpleHTTPRequestハンドラはリクエストを受け取るという出来事が起きると、起動した時のカレントディレクトリにあるファイルを見せ、CGIHTTPRequestハンドラはリクエストを受け取るという出来事が起きると、サーバ上のPythonのプログラムを動かすというわけです。
+レスポンスはWebブラウザが受け取って表示します。つまり、PythonのプログラムとWebブラウザの間で通信ができるわけです。クライアントとサーバの間で通信を行うのは、Webアプリケーションの動作原理の最も基本的な部分です。
 
-では、実際にPythonのプログラムを設置して、Webブラウザに結果を表示 してみましょう。cgiserver.pyというスクリプトを設置したフォルダに、「cgi-bin」という名前のディレクトリを作ります。新たに作ったディレクトリの中に、以下のようなPythonのファイルを設置してください。
+では、実際にPythonのプログラムを設置して、Webブラウザに結果を表示してみましょう。cgiserver.pyというスクリプトを設置したフォルダに、「cgi-bin」という名前のディレクトリを作ります。新たに作ったディレクトリの中に、以下のようなPythonのファイルを設置してください。
 
 ** 図04 ドキュメントルートにcgi-binフォルダを作り、プログラムを置く **
 
@@ -39,9 +42,9 @@ Webブラウザで先ほど開いたURLの最後に、「cgi-bin/tes
 ** List04 test.py **
 
     :::python
-    #!/usr/bin/env python
-    print "Content-type: text/html¥n"
-    print "<html><body>Python is awesome !</body></html>"
+    #!/usr/bin/env python3
+    print("Content-type: text/html\n")
+    print("<html><body>Python is awesome !</body></html>")
 
 簡単にプログラムの内容を解説します。このスクリプトは、print文を使って文字列を表示するというとても単純なプログラムです。print文を使って出力した結果が、Webサーバを経由し、ネットワークを通してWebブラウザにレスポンスとして送り返されていることになります。同じような仕組みを使うと、もっと複雑なHTMLをWebブラウザに送ることができます。Webアプリケーションで実行した処理の結果をWebブラウザ上に表示したり、ユーザインターフェースを表示することもできます。
 
@@ -58,16 +61,21 @@ test.pyを改造して、もう少し複雑なプログラムを作って�
 ** List05 test.py(改) **
 
     :::python
-    #!/usr/bin/env python
-    import datetime
-    html_body = """
-    <html><body>
-    %d/%d/%d %d:%d:%d
-    </body></html>"""
-    now=datetime.datetime.now()
-    print "Content-type: text/html¥n"
-    print html_body % (now.year, now.month, now.day,
-                       now.hour, now.minute, now.second)
+        #!/usr/bin/env python3
+
+        import datetime
+        
+        #フォーマット文字列の作成
+        html_body = """
+        <html><body>
+        {0.year:d}/{0.month:d}/{0.day:d} {0.hour:d}:{0.minute:d}:{0.second:d}
+        </body></html>"""
+        
+        now=datetime.datetime.now()
+        
+        print("Content-type: text/html\n")
+        print(html_body.format(now))
+
 
 このプログラムでは、datetimeモジュールを使って現在時刻を取得して表示しています。レスポンスとして返すHTMLを組み立てるためには、Pythonの文字列フォーマットという機能を使っています。HTML全体をあらかじめhtml_bodyという変数に定義しておき、最後に現在の日付を埋め込んで出力しています。
 
