@@ -25,6 +25,6 @@
 ## 協力者募集
 Python3.x対応に向けて，協力者を募集します。アイデアや意見のある方(たとえば認証のハッシュがmd5じゃダメでしょ，とか)は，ぜひお寄せください。
 ## Licence
-[MIT](https://github.com/tcnksm/tool/blob/master/LICENCE)
+[MIT](http://opensource.org/licenses/mit-license.php)
 ## Author
 [shibats](https://github.com/shibats)
